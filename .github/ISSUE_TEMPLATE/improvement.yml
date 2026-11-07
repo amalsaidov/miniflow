@@ -1,0 +1,16 @@
+name: Improvement
+description: Improve existing behaviour, performance, UI or documentation
+title: "[Improvement] [Module] "
+labels: ["improvement"]
+body:
+  - type: textarea
+    attributes:
+      label: Description
+      description: What should be improved and why?
+    validations:
+      required: true
+  - type: checkboxes
+    attributes:
+      label: Are you willing to submit a pull request?
+      options:
+        - label: Yes, I am willing to submit a PR.

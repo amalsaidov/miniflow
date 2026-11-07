@@ -1,0 +1,96 @@
+{
+  "id": "daily-sales-report",
+  "name": "Daily sales report: SQL → Excel → email + Slack (weekdays 07:45)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "weekdays-0745",
+      "type": "trigger",
+      "x": 40,
+      "y": 200,
+      "params": {
+        "cron": "45 7 * * MON-FRI",
+        "sample": {}
+      }
+    },
+    {
+      "id": "sales-summary",
+      "type": "database",
+      "x": 280,
+      "y": 200,
+      "params": {
+        "credential": "shop-db",
+        "maxRows": 1,
+        "query": "SELECT COUNT(*) AS orders, COALESCE(SUM(total), 0) AS revenue, COALESCE(ROUND(AVG(total), 2), 0) AS avg_order FROM shop_orders WHERE created_at >= CURRENT_DATE - INTERVAL '1' DAY AND created_at < CURRENT_DATE"
+      }
+    },
+    {
+      "id": "order-lines",
+      "type": "database",
+      "x": 520,
+      "y": 200,
+      "params": {
+        "credential": "shop-db",
+        "maxRows": 10000,
+        "query": "SELECT order_no, customer_name, customer_email, total, currency, status, created_at FROM shop_orders WHERE created_at >= CURRENT_DATE - INTERVAL '1' DAY AND created_at < CURRENT_DATE ORDER BY created_at"
+      }
+    },
+    {
+      "id": "excel",
+      "type": "spreadsheet",
+      "x": 760,
+      "y": 200,
+      "params": {
+        "rows": "{{ input.rows }}",
+        "format": "xlsx",
+        "fileName": "sales-{{ today }}",
+        "sheetName": "Yesterday"
+      }
+    },
+    {
+      "id": "email-management",
+      "type": "email",
+      "x": 1000,
+      "y": 200,
+      "params": {
+        "credential": "smtp",
+        "to": "{{ vars.reportEmail }}",
+        "subject": "Sales report: {{ nodes['sales-summary'].first.orders }} orders, {{ nodes['sales-summary'].first.revenue }} revenue",
+        "text": "Yesterday: {{ nodes['sales-summary'].first.orders }} orders, revenue {{ nodes['sales-summary'].first.revenue }}, average order {{ nodes['sales-summary'].first.avg_order }}.\nAll orders are in the attached Excel file.",
+        "attachments": "{{ input.file }}"
+      }
+    },
+    {
+      "id": "post-to-slack",
+      "type": "slack",
+      "x": 1240,
+      "y": 200,
+      "params": {
+        "credential": "slack",
+        "text": "📈 Yesterday: {{ nodes['sales-summary'].first.orders }} orders · revenue {{ nodes['sales-summary'].first.revenue }} · avg {{ nodes['sales-summary'].first.avg_order }} (report emailed)"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "weekdays-0745",
+      "to": "sales-summary"
+    },
+    {
+      "from": "sales-summary",
+      "to": "order-lines"
+    },
+    {
+      "from": "order-lines",
+      "to": "excel"
+    },
+    {
+      "from": "excel",
+      "to": "email-management"
+    },
+    {
+      "from": "email-management",
+      "to": "post-to-slack"
+    }
+  ]
+}

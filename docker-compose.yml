@@ -1,0 +1,22 @@
+# Usage:
+#   cp .env .env   # then fill in the values
+#   docker compose up -d                 # PostgreSQL only (run MiniFlow from your IDE with the postgres profile)
+#   docker compose --profile app up -d   # PostgreSQL + MiniFlow
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: miniflow
+      POSTGRES_USER: ${MINIFLOW_DB_USERNAME:-miniflow}
+      POSTGRES_PASSWORD: ${MINIFLOW_DB_PASSWORD:?Set MINIFLOW_DB_PASSWORD in .env}
+    ports:
+      - "5432:5432"
+    volumes:
+      - miniflow-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d miniflow"]
+      interval: 5s
+      retries: 10
+
+volumes:
+  miniflow-pg:

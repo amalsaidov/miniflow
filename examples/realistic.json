@@ -1,0 +1,1314 @@
+[
+  {
+    "id": "order-pipeline",
+    "name": "E-commerce order pipeline",
+    "active": false,
+    "nodes": [
+      {
+        "id": "new-order",
+        "type": "trigger",
+        "x": 40,
+        "y": 260,
+        "params": {
+          "path": "shop-orders",
+          "sample": {
+            "orderNo": "ORD-1001",
+            "currency": "EUR",
+            "total": 1250.0,
+            "paymentStatus": "paid",
+            "customer": {
+              "name": "Alice Smith",
+              "email": "Alice@Example.com"
+            },
+            "items": [
+              {
+                "sku": "HP-200",
+                "name": "Headphones",
+                "qty": 2,
+                "price": 450
+              },
+              {
+                "sku": "CB-10",
+                "name": "USB-C cable",
+                "qty": 1,
+                "price": 350
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "is-valid",
+        "type": "if",
+        "x": 260,
+        "y": 260,
+        "params": {
+          "condition": "{{ input.orderNo != null and input.customer?.email != null and input.customer.email.contains('@') and input.total != null and input.total > 0 and input.paymentStatus == 'paid' }}"
+        }
+      },
+      {
+        "id": "normalize",
+        "type": "set",
+        "x": 480,
+        "y": 160,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "orderNo": "{{ input.orderNo.trim() }}",
+            "name": "{{ input.customer.name?.trim() }}",
+            "email": "{{ input.customer.email.trim().toLowerCase() }}",
+            "total": "{{ input.total }}",
+            "currency": "{{ input.currency == null ? 'EUR' : input.currency.toUpperCase() }}",
+            "itemCount": "{{ input.items == null ? 0 : input.items.size() }}"
+          }
+        }
+      },
+      {
+        "id": "already-processed",
+        "type": "dedupe",
+        "x": 700,
+        "y": 160,
+        "params": {
+          "key": "order-{{ input.orderNo }}"
+        }
+      },
+      {
+        "id": "save-order",
+        "type": "database",
+        "x": 920,
+        "y": 100,
+        "params": {
+          "credential": "shop-db",
+          "query": "INSERT INTO shop_orders (order_no, customer_name, customer_email, total, currency, status) VALUES (:orderNo, :name, :email, :total, :currency, 'NEW')",
+          "params": {
+            "orderNo": "{{ input.orderNo }}",
+            "name": "{{ input.name }}",
+            "email": "{{ input.email }}",
+            "total": "{{ input.total }}",
+            "currency": "{{ input.currency }}"
+          }
+        }
+      },
+      {
+        "id": "send-to-warehouse",
+        "type": "rabbitmq",
+        "x": 1140,
+        "y": 100,
+        "params": {
+          "credential": "rabbitmq",
+          "routingKey": "fulfillment.orders",
+          "declareQueue": true,
+          "message": {
+            "orderNo": "{{ nodes['normalize'].orderNo }}",
+            "items": "{{ trigger.items }}",
+            "shipTo": {
+              "name": "{{ nodes['normalize'].name }}",
+              "email": "{{ nodes['normalize'].email }}"
+            }
+          }
+        }
+      },
+      {
+        "id": "is-large-order",
+        "type": "if",
+        "x": 1360,
+        "y": 100,
+        "params": {
+          "condition": "{{ nodes['normalize'].total >= 1000 }}"
+        }
+      },
+      {
+        "id": "notify-sales",
+        "type": "slack",
+        "x": 1580,
+        "y": 20,
+        "params": {
+          "credential": "slack",
+          "text": "💰 Large order {{ nodes['normalize'].orderNo }}: {{ nodes['normalize'].total }} {{ nodes['normalize'].currency }} from {{ nodes['normalize'].name }} ({{ nodes['normalize'].itemCount }} items)"
+        }
+      },
+      {
+        "id": "confirm-to-customer",
+        "type": "email",
+        "x": 1800,
+        "y": 100,
+        "params": {
+          "credential": "smtp",
+          "to": "{{ nodes['normalize'].email }}",
+          "subject": "Your order {{ nodes['normalize'].orderNo }} is confirmed",
+          "text": "Hi {{ nodes['normalize'].name }},\n\nThanks for your order {{ nodes['normalize'].orderNo }} ({{ nodes['normalize'].total }} {{ nodes['normalize'].currency }}). We will email you again when it ships.\n\nThe Shop team"
+        }
+      },
+      {
+        "id": "accepted",
+        "type": "set",
+        "x": 2020,
+        "y": 100,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "ok": true,
+            "orderNo": "{{ nodes['normalize'].orderNo }}",
+            "status": "accepted"
+          }
+        }
+      },
+      {
+        "id": "duplicate",
+        "type": "set",
+        "x": 920,
+        "y": 280,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "ok": true,
+            "orderNo": "{{ input.orderNo }}",
+            "status": "duplicate-ignored"
+          }
+        }
+      },
+      {
+        "id": "rejected",
+        "type": "set",
+        "x": 480,
+        "y": 400,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "ok": false,
+            "error": "orderNo, customer.email, total > 0 and paymentStatus = paid are required"
+          }
+        }
+      }
+    ],
+    "connections": [
+      {
+        "from": "new-order",
+        "to": "is-valid"
+      },
+      {
+        "from": "is-valid",
+        "to": "normalize",
+        "branch": "true"
+      },
+      {
+        "from": "is-valid",
+        "to": "rejected",
+        "branch": "false"
+      },
+      {
+        "from": "normalize",
+        "to": "already-processed"
+      },
+      {
+        "from": "already-processed",
+        "to": "save-order",
+        "branch": "new"
+      },
+      {
+        "from": "already-processed",
+        "to": "duplicate",
+        "branch": "seen"
+      },
+      {
+        "from": "save-order",
+        "to": "send-to-warehouse"
+      },
+      {
+        "from": "send-to-warehouse",
+        "to": "is-large-order"
+      },
+      {
+        "from": "is-large-order",
+        "to": "notify-sales",
+        "branch": "true"
+      },
+      {
+        "from": "is-large-order",
+        "to": "confirm-to-customer",
+        "branch": "false"
+      },
+      {
+        "from": "notify-sales",
+        "to": "confirm-to-customer"
+      },
+      {
+        "from": "confirm-to-customer",
+        "to": "accepted"
+      }
+    ]
+  },
+  {
+    "id": "support-triage",
+    "name": "AI support triage: GitHub issue + Slack for urgent, Sheets log for the rest",
+    "active": false,
+    "nodes": [
+      {
+        "id": "request",
+        "type": "trigger",
+        "x": 40,
+        "y": 220,
+        "params": {
+          "path": "support",
+          "sample": {
+            "name": "Bob",
+            "email": "bob@example.com",
+            "subject": "Charged but no order",
+            "message": "My card was charged 2 hours ago but I don't see any order. This is the second time!"
+          }
+        }
+      },
+      {
+        "id": "is-valid",
+        "type": "if",
+        "x": 260,
+        "y": 220,
+        "params": {
+          "condition": "{{ input.email != null and input.email.contains('@') and input.message != null }}"
+        }
+      },
+      {
+        "id": "classify",
+        "type": "ai",
+        "x": 480,
+        "y": 160,
+        "params": {
+          "credential": "openai",
+          "json": true,
+          "maxTokens": 300,
+          "system": "You are the support triage assistant of an online shop. Reply ONLY with JSON of the form {\"category\": \"billing|shipping|technical|account|other\", \"urgency\": \"high|normal|low\", \"sentiment\": \"angry|neutral|happy\", \"summary\": \"one short sentence\"}. Urgency is high for payment problems, outages, security issues or very angry customers.",
+          "prompt": "Subject: {{ input.subject }}\nMessage: {{ input.message }}"
+        }
+      },
+      {
+        "id": "is-urgent",
+        "type": "if",
+        "x": 700,
+        "y": 160,
+        "params": {
+          "condition": "{{ input.data.urgency == 'high' }}"
+        }
+      },
+      {
+        "id": "create-ticket",
+        "type": "github",
+        "x": 920,
+        "y": 60,
+        "params": {
+          "credential": "github",
+          "operation": "createIssue",
+          "repo": "{{ vars.githubRepo }}",
+          "title": "[{{ nodes['classify'].data.category }}] {{ trigger.subject }}",
+          "body": "{{ nodes['classify'].data.summary }}\n\nFrom: {{ trigger.name }} <{{ trigger.email }}>\nSentiment: {{ nodes['classify'].data.sentiment }}\n\n{{ trigger.message }}",
+          "labels": [
+            "support",
+            "{{ nodes['classify'].data.category }}",
+            "urgent"
+          ]
+        }
+      },
+      {
+        "id": "page-support",
+        "type": "slack",
+        "x": 1140,
+        "y": 60,
+        "params": {
+          "credential": "slack",
+          "text": "🔴 Urgent ticket #{{ input.number }} ({{ nodes['classify'].data.category }}, {{ nodes['classify'].data.sentiment }}): {{ nodes['classify'].data.summary }}\n{{ input.url }}"
+        }
+      },
+      {
+        "id": "log-to-sheet",
+        "type": "googleSheets",
+        "x": 920,
+        "y": 260,
+        "params": {
+          "credential": "google",
+          "operation": "append",
+          "spreadsheetId": "{{ vars.supportSheetId }}",
+          "range": "Tickets",
+          "values": [
+            [
+              "{{ now }}",
+              "{{ trigger.email }}",
+              "{{ trigger.subject }}",
+              "{{ input.data.category }}",
+              "{{ input.data.urgency }}",
+              "{{ input.data.summary }}"
+            ]
+          ]
+        }
+      },
+      {
+        "id": "acknowledge",
+        "type": "email",
+        "x": 1360,
+        "y": 160,
+        "params": {
+          "credential": "smtp",
+          "to": "{{ trigger.email }}",
+          "subject": "We received your request: {{ trigger.subject }}",
+          "text": "Hi {{ trigger.name }},\n\nThanks for contacting us. {{ nodes['classify'].data.urgency == 'high' ? 'Your request was marked urgent and a teammate is on it.' : 'We usually reply within one business day.' }}\n\nSupport team"
+        }
+      },
+      {
+        "id": "respond",
+        "type": "set",
+        "x": 1580,
+        "y": 160,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "ok": true,
+            "category": "{{ nodes['classify'].data.category }}",
+            "urgency": "{{ nodes['classify'].data.urgency }}",
+            "ticket": "{{ nodes['create-ticket']?.number }}"
+          }
+        }
+      },
+      {
+        "id": "invalid",
+        "type": "set",
+        "x": 480,
+        "y": 380,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "ok": false,
+            "error": "email and message are required"
+          }
+        }
+      }
+    ],
+    "connections": [
+      {
+        "from": "request",
+        "to": "is-valid"
+      },
+      {
+        "from": "is-valid",
+        "to": "classify",
+        "branch": "true"
+      },
+      {
+        "from": "is-valid",
+        "to": "invalid",
+        "branch": "false"
+      },
+      {
+        "from": "classify",
+        "to": "is-urgent"
+      },
+      {
+        "from": "is-urgent",
+        "to": "create-ticket",
+        "branch": "true"
+      },
+      {
+        "from": "is-urgent",
+        "to": "log-to-sheet",
+        "branch": "false"
+      },
+      {
+        "from": "create-ticket",
+        "to": "page-support"
+      },
+      {
+        "from": "page-support",
+        "to": "acknowledge"
+      },
+      {
+        "from": "log-to-sheet",
+        "to": "acknowledge"
+      },
+      {
+        "from": "acknowledge",
+        "to": "respond"
+      }
+    ]
+  },
+  {
+    "id": "uptime-incident",
+    "name": "Uptime monitor: GitHub incident issue + Slack page (max 1/hour)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "every-5-min",
+        "type": "trigger",
+        "x": 40,
+        "y": 200,
+        "params": {
+          "cron": "*/5 * * * *",
+          "sample": {}
+        }
+      },
+      {
+        "id": "health-check",
+        "type": "http",
+        "x": 280,
+        "y": 200,
+        "params": {
+          "method": "GET",
+          "url": "{{ vars.healthCheckUrl }}",
+          "failOnError": false
+        }
+      },
+      {
+        "id": "is-down",
+        "type": "if",
+        "x": 520,
+        "y": 200,
+        "params": {
+          "condition": "{{ !input.ok }}"
+        }
+      },
+      {
+        "id": "first-this-hour",
+        "type": "dedupe",
+        "x": 760,
+        "y": 140,
+        "params": {
+          "key": "incident-{{ now.substring(0, 13) }}"
+        }
+      },
+      {
+        "id": "open-incident",
+        "type": "github",
+        "x": 1000,
+        "y": 80,
+        "params": {
+          "credential": "github",
+          "operation": "createIssue",
+          "repo": "{{ vars.githubRepo }}",
+          "title": "🚨 {{ vars.healthCheckUrl }} is down (HTTP {{ input.status }})",
+          "body": "Detected by MiniFlow at {{ now }}.\n\nStatus: {{ input.status }}\nError: {{ input.error }}\nResponse: {{ input.body }}",
+          "labels": [
+            "incident",
+            "monitoring"
+          ]
+        }
+      },
+      {
+        "id": "page-team",
+        "type": "slack",
+        "x": 1240,
+        "y": 80,
+        "params": {
+          "credential": "slack",
+          "text": "🚨 {{ vars.healthCheckUrl }} is DOWN (HTTP {{ nodes['health-check'].status }}). Incident: {{ input.url }}"
+        }
+      }
+    ],
+    "connections": [
+      {
+        "from": "every-5-min",
+        "to": "health-check"
+      },
+      {
+        "from": "health-check",
+        "to": "is-down"
+      },
+      {
+        "from": "is-down",
+        "to": "first-this-hour",
+        "branch": "true"
+      },
+      {
+        "from": "first-this-hour",
+        "to": "open-incident",
+        "branch": "new"
+      },
+      {
+        "from": "open-incident",
+        "to": "page-team"
+      }
+    ]
+  },
+  {
+    "id": "daily-sales-report",
+    "name": "Daily sales report: SQL → Excel → email + Slack (weekdays 07:45)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "weekdays-0745",
+        "type": "trigger",
+        "x": 40,
+        "y": 200,
+        "params": {
+          "cron": "45 7 * * MON-FRI",
+          "sample": {}
+        }
+      },
+      {
+        "id": "sales-summary",
+        "type": "database",
+        "x": 280,
+        "y": 200,
+        "params": {
+          "credential": "shop-db",
+          "maxRows": 1,
+          "query": "SELECT COUNT(*) AS orders, COALESCE(SUM(total), 0) AS revenue, COALESCE(ROUND(AVG(total), 2), 0) AS avg_order FROM shop_orders WHERE created_at >= CURRENT_DATE - INTERVAL '1' DAY AND created_at < CURRENT_DATE"
+        }
+      },
+      {
+        "id": "order-lines",
+        "type": "database",
+        "x": 520,
+        "y": 200,
+        "params": {
+          "credential": "shop-db",
+          "maxRows": 10000,
+          "query": "SELECT order_no, customer_name, customer_email, total, currency, status, created_at FROM shop_orders WHERE created_at >= CURRENT_DATE - INTERVAL '1' DAY AND created_at < CURRENT_DATE ORDER BY created_at"
+        }
+      },
+      {
+        "id": "excel",
+        "type": "spreadsheet",
+        "x": 760,
+        "y": 200,
+        "params": {
+          "rows": "{{ input.rows }}",
+          "format": "xlsx",
+          "fileName": "sales-{{ today }}",
+          "sheetName": "Yesterday"
+        }
+      },
+      {
+        "id": "email-management",
+        "type": "email",
+        "x": 1000,
+        "y": 200,
+        "params": {
+          "credential": "smtp",
+          "to": "{{ vars.reportEmail }}",
+          "subject": "Sales report: {{ nodes['sales-summary'].first.orders }} orders, {{ nodes['sales-summary'].first.revenue }} revenue",
+          "text": "Yesterday: {{ nodes['sales-summary'].first.orders }} orders, revenue {{ nodes['sales-summary'].first.revenue }}, average order {{ nodes['sales-summary'].first.avg_order }}.\nAll orders are in the attached Excel file.",
+          "attachments": "{{ input.file }}"
+        }
+      },
+      {
+        "id": "post-to-slack",
+        "type": "slack",
+        "x": 1240,
+        "y": 200,
+        "params": {
+          "credential": "slack",
+          "text": "📈 Yesterday: {{ nodes['sales-summary'].first.orders }} orders · revenue {{ nodes['sales-summary'].first.revenue }} · avg {{ nodes['sales-summary'].first.avg_order }} (report emailed)"
+        }
+      }
+    ],
+    "connections": [
+      {
+        "from": "weekdays-0745",
+        "to": "sales-summary"
+      },
+      {
+        "from": "sales-summary",
+        "to": "order-lines"
+      },
+      {
+        "from": "order-lines",
+        "to": "excel"
+      },
+      {
+        "from": "excel",
+        "to": "email-management"
+      },
+      {
+        "from": "email-management",
+        "to": "post-to-slack"
+      }
+    ]
+  },
+  {
+    "id": "lead-capture",
+    "name": "Landing page leads → Google Sheets + Slack (deduplicated)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "lead",
+        "type": "trigger",
+        "x": 40,
+        "y": 220,
+        "params": {
+          "path": "leads",
+          "sample": {
+            "name": "Carol White",
+            "email": "carol@acme.io",
+            "company": "Acme",
+            "plan": "business",
+            "utm_source": "linkedin"
+          }
+        }
+      },
+      {
+        "id": "is-valid",
+        "type": "if",
+        "x": 260,
+        "y": 220,
+        "params": {
+          "condition": "{{ input.email != null and input.email.contains('@') }}"
+        }
+      },
+      {
+        "id": "normalize",
+        "type": "set",
+        "x": 480,
+        "y": 140,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "name": "{{ input.name?.trim() }}",
+            "email": "{{ input.email.trim().toLowerCase() }}",
+            "company": "{{ input.company == null ? input.email.trim().toLowerCase().split('@')[1] : input.company }}",
+            "plan": "{{ input.plan == null ? 'unknown' : input.plan }}",
+            "source": "{{ input.utm_source == null ? 'direct' : input.utm_source }}",
+            "receivedAt": "{{ now }}"
+          }
+        }
+      },
+      {
+        "id": "is-new-lead",
+        "type": "dedupe",
+        "x": 700,
+        "y": 140,
+        "params": {
+          "key": "lead-{{ input.email }}"
+        }
+      },
+      {
+        "id": "append-to-crm-sheet",
+        "type": "googleSheets",
+        "x": 920,
+        "y": 60,
+        "params": {
+          "credential": "google",
+          "operation": "append",
+          "spreadsheetId": "{{ vars.leadsSheetId }}",
+          "range": "Leads",
+          "values": "{{ input }}",
+          "columns": [
+            "receivedAt",
+            "name",
+            "email",
+            "company",
+            "plan",
+            "source"
+          ]
+        }
+      },
+      {
+        "id": "notify-sales",
+        "type": "slack",
+        "x": 1140,
+        "y": 60,
+        "params": {
+          "credential": "slack",
+          "text": "🧲 New lead: {{ nodes['normalize'].name }} <{{ nodes['normalize'].email }}> from {{ nodes['normalize'].company }} · plan {{ nodes['normalize'].plan }} · via {{ nodes['normalize'].source }}"
+        }
+      },
+      {
+        "id": "thanks",
+        "type": "set",
+        "x": 1360,
+        "y": 140,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "ok": true,
+            "message": "Thanks! We'll be in touch shortly."
+          }
+        }
+      },
+      {
+        "id": "invalid",
+        "type": "set",
+        "x": 480,
+        "y": 360,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "ok": false,
+            "error": "A valid email is required"
+          }
+        }
+      }
+    ],
+    "connections": [
+      {
+        "from": "lead",
+        "to": "is-valid"
+      },
+      {
+        "from": "is-valid",
+        "to": "normalize",
+        "branch": "true"
+      },
+      {
+        "from": "is-valid",
+        "to": "invalid",
+        "branch": "false"
+      },
+      {
+        "from": "normalize",
+        "to": "is-new-lead"
+      },
+      {
+        "from": "is-new-lead",
+        "to": "append-to-crm-sheet",
+        "branch": "new"
+      },
+      {
+        "from": "is-new-lead",
+        "to": "thanks",
+        "branch": "seen"
+      },
+      {
+        "from": "append-to-crm-sheet",
+        "to": "notify-sales"
+      },
+      {
+        "from": "notify-sales",
+        "to": "thanks"
+      }
+    ]
+  },
+  {
+    "id": "payment-failure-monitor",
+    "name": "Payment failure spike detector (Kafka → Redis counter → Slack)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "payment-events",
+        "type": "trigger",
+        "x": 40,
+        "y": 200,
+        "params": {
+          "listen": {
+            "type": "kafka",
+            "credential": "kafka",
+            "topic": "payments.events",
+            "group": "miniflow-payment-monitor"
+          },
+          "sample": {
+            "body": {
+              "paymentId": "pay_123",
+              "orderNo": "ORD-1001",
+              "status": "FAILED",
+              "reason": "card_declined"
+            }
+          }
+        }
+      },
+      {
+        "id": "is-failure",
+        "type": "if",
+        "x": 280,
+        "y": 200,
+        "params": {
+          "condition": "{{ trigger.body.status == 'FAILED' }}"
+        }
+      },
+      {
+        "id": "count-this-hour",
+        "type": "redis",
+        "x": 520,
+        "y": 140,
+        "params": {
+          "credential": "redis",
+          "operation": "incr",
+          "key": "payment-failures:{{ now.substring(0, 13) }}"
+        }
+      },
+      {
+        "id": "over-threshold",
+        "type": "if",
+        "x": 760,
+        "y": 140,
+        "params": {
+          "condition": "{{ input.value >= 5 }}"
+        }
+      },
+      {
+        "id": "alert-once-per-hour",
+        "type": "dedupe",
+        "x": 1000,
+        "y": 80,
+        "params": {
+          "key": "payment-alert-{{ now.substring(0, 13) }}"
+        }
+      },
+      {
+        "id": "alert-payments-team",
+        "type": "slack",
+        "x": 1240,
+        "y": 80,
+        "params": {
+          "credential": "slack",
+          "text": "⚠️ {{ nodes['count-this-hour'].value }} failed payments this hour (latest: {{ trigger.body.orderNo }}, reason {{ trigger.body.reason }}). Check the payment provider."
+        }
+      }
+    ],
+    "connections": [
+      {
+        "from": "payment-events",
+        "to": "is-failure"
+      },
+      {
+        "from": "is-failure",
+        "to": "count-this-hour",
+        "branch": "true"
+      },
+      {
+        "from": "count-this-hour",
+        "to": "over-threshold"
+      },
+      {
+        "from": "over-threshold",
+        "to": "alert-once-per-hour",
+        "branch": "true"
+      },
+      {
+        "from": "alert-once-per-hour",
+        "to": "alert-payments-team",
+        "branch": "new"
+      }
+    ]
+  },
+  {
+    "id": "release-watch-ai",
+    "name": "Dependency release watch: AI summary → Slack + GitHub upgrade issue",
+    "active": false,
+    "nodes": [
+      {
+        "id": "daily-0900",
+        "type": "trigger",
+        "x": 40,
+        "y": 200,
+        "params": {
+          "cron": "0 9 * * *",
+          "sample": {}
+        }
+      },
+      {
+        "id": "releases",
+        "type": "rss",
+        "x": 280,
+        "y": 200,
+        "params": {
+          "url": "https://github.com/spring-projects/spring-boot/releases.atom",
+          "limit": 1
+        }
+      },
+      {
+        "id": "has-release",
+        "type": "if",
+        "x": 520,
+        "y": 200,
+        "params": {
+          "condition": "{{ input.latest != null }}"
+        }
+      },
+      {
+        "id": "is-new-release",
+        "type": "dedupe",
+        "x": 760,
+        "y": 140,
+        "params": {
+          "key": "{{ input.latest.id }}"
+        }
+      },
+      {
+        "id": "summarize",
+        "type": "ai",
+        "x": 1000,
+        "y": 140,
+        "params": {
+          "credential": "openai",
+          "maxTokens": 300,
+          "system": "You write short release digests for a Java backend team. Use 3 bullet points, mention breaking changes first.",
+          "prompt": "Release {{ input.latest.title }}:\n{{ input.latest.summary }}"
+        }
+      },
+      {
+        "id": "announce",
+        "type": "slack",
+        "x": 1240,
+        "y": 60,
+        "params": {
+          "credential": "slack",
+          "text": "🏷️ Spring Boot {{ nodes['releases'].latest.title }} is out\n{{ input.text }}\n{{ nodes['releases'].latest.link }}"
+        }
+      },
+      {
+        "id": "upgrade-task",
+        "type": "github",
+        "x": 1480,
+        "y": 60,
+        "params": {
+          "credential": "github",
+          "operation": "createIssue",
+          "repo": "{{ vars.githubRepo }}",
+          "title": "Upgrade Spring Boot to {{ nodes['releases'].latest.title }}",
+          "body": "{{ nodes['summarize'].text }}\n\nRelease notes: {{ nodes['releases'].latest.link }}",
+          "labels": [
+            "dependencies",
+            "spring-boot"
+          ]
+        }
+      }
+    ],
+    "connections": [
+      {
+        "from": "daily-0900",
+        "to": "releases"
+      },
+      {
+        "from": "releases",
+        "to": "has-release"
+      },
+      {
+        "from": "has-release",
+        "to": "is-new-release",
+        "branch": "true"
+      },
+      {
+        "from": "is-new-release",
+        "to": "summarize",
+        "branch": "new"
+      },
+      {
+        "from": "summarize",
+        "to": "announce"
+      },
+      {
+        "from": "announce",
+        "to": "upgrade-task"
+      }
+    ]
+  },
+  {
+    "id": "pr-issue-sync",
+    "name": "GitHub pull requests → comment on the linked issue + Slack (signed webhook)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "github",
+        "type": "trigger",
+        "x": 40,
+        "y": 220,
+        "params": {
+          "path": "github-pr",
+          "signatureSecretVar": "githubWebhookSecret",
+          "sample": {
+            "_headers": {
+              "x-github-event": "pull_request"
+            },
+            "action": "closed",
+            "repository": {
+              "full_name": "acme/shop"
+            },
+            "pull_request": {
+              "number": 77,
+              "title": "Add PayPal checkout",
+              "body": "Fixes #142",
+              "html_url": "https://github.com/acme/shop/pull/77",
+              "merged": true,
+              "user": {
+                "login": "omernaci"
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "extract",
+        "type": "set",
+        "x": 260,
+        "y": 220,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "event": "{{ trigger._headers == null ? null : trigger._headers['x-github-event'] }}",
+            "action": "{{ trigger.action }}",
+            "repo": "{{ trigger.repository?.full_name }}",
+            "issue": "{{ trigger.pull_request != null and (trigger.pull_request?.title + ' ' + trigger.pull_request?.body).matches('(?s).*#[0-9]+.*') ? (trigger.pull_request?.title + ' ' + trigger.pull_request?.body).replaceAll('(?s)^.*?#([0-9]+).*$', '$1') : null }}",
+            "title": "{{ trigger.pull_request?.title }}",
+            "url": "{{ trigger.pull_request?.html_url }}",
+            "author": "{{ trigger.pull_request?.user?.login }}",
+            "merged": "{{ trigger.pull_request?.merged == true }}"
+          }
+        }
+      },
+      {
+        "id": "is-relevant",
+        "type": "if",
+        "x": 480,
+        "y": 220,
+        "params": {
+          "condition": "{{ input.event == 'pull_request' and input.issue != null and input.repo != null and (input.action == 'opened' or input.action == 'closed' or input.action == 'reopened') }}"
+        }
+      },
+      {
+        "id": "comment-on-issue",
+        "type": "github",
+        "x": 700,
+        "y": 140,
+        "params": {
+          "credential": "github",
+          "operation": "comment",
+          "repo": "{{ input.repo }}",
+          "issueNumber": "{{ input.issue }}",
+          "body": "Pull request #{{ trigger.pull_request.number }} {{ input.merged ? 'merged' : input.action }} by @{{ input.author }}: {{ input.title }}\n{{ input.url }}"
+        }
+      },
+      {
+        "id": "notify-team",
+        "type": "slack",
+        "x": 920,
+        "y": 140,
+        "params": {
+          "credential": "slack",
+          "text": "🔀 PR #{{ trigger.pull_request.number }} {{ extract.merged ? 'merged' : extract.action }} by {{ extract.author }}: <{{ extract.url }}|{{ extract.title }}> · linked issue #{{ extract.issue }}"
+        }
+      },
+      {
+        "id": "synced",
+        "type": "set",
+        "x": 1140,
+        "y": 140,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "ok": true,
+            "issue": "{{ nodes['extract'].issue }}"
+          }
+        }
+      },
+      {
+        "id": "ignored",
+        "type": "set",
+        "x": 700,
+        "y": 320,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "ok": true,
+            "ignored": true
+          }
+        }
+      }
+    ],
+    "connections": [
+      {
+        "from": "github",
+        "to": "extract"
+      },
+      {
+        "from": "extract",
+        "to": "is-relevant"
+      },
+      {
+        "from": "is-relevant",
+        "to": "comment-on-issue",
+        "branch": "true"
+      },
+      {
+        "from": "is-relevant",
+        "to": "ignored",
+        "branch": "false"
+      },
+      {
+        "from": "comment-on-issue",
+        "to": "notify-team"
+      },
+      {
+        "from": "notify-team",
+        "to": "synced"
+      }
+    ]
+  },
+  {
+    "id": "export-request",
+    "name": "Customer data export, step 1: accept request → Redis job queue",
+    "active": false,
+    "nodes": [
+      {
+        "id": "request",
+        "type": "trigger",
+        "x": 40,
+        "y": 200,
+        "params": {
+          "path": "exports",
+          "sample": {
+            "email": "alice@example.com"
+          }
+        }
+      },
+      {
+        "id": "is-valid",
+        "type": "if",
+        "x": 260,
+        "y": 200,
+        "params": {
+          "condition": "{{ input.email != null and input.email.contains('@') }}"
+        }
+      },
+      {
+        "id": "enqueue",
+        "type": "redis",
+        "x": 480,
+        "y": 120,
+        "params": {
+          "credential": "redis",
+          "operation": "rpush",
+          "key": "export-jobs",
+          "message": {
+            "email": "{{ input.email.trim().toLowerCase() }}",
+            "requestedAt": "{{ now }}"
+          }
+        }
+      },
+      {
+        "id": "accepted",
+        "type": "set",
+        "x": 700,
+        "y": 120,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "ok": true,
+            "queued": true,
+            "position": "{{ input.length }}",
+            "message": "Your export is being prepared and will be emailed to you."
+          }
+        }
+      },
+      {
+        "id": "invalid",
+        "type": "set",
+        "x": 480,
+        "y": 300,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "ok": false,
+            "error": "A valid email is required"
+          }
+        }
+      }
+    ],
+    "connections": [
+      {
+        "from": "request",
+        "to": "is-valid"
+      },
+      {
+        "from": "is-valid",
+        "to": "enqueue",
+        "branch": "true"
+      },
+      {
+        "from": "is-valid",
+        "to": "invalid",
+        "branch": "false"
+      },
+      {
+        "from": "enqueue",
+        "to": "accepted"
+      }
+    ]
+  },
+  {
+    "id": "export-worker",
+    "name": "Customer data export, step 2: Redis worker → SQL → Excel → email",
+    "active": false,
+    "nodes": [
+      {
+        "id": "export-jobs",
+        "type": "trigger",
+        "x": 40,
+        "y": 200,
+        "params": {
+          "listen": {
+            "type": "redis",
+            "credential": "redis",
+            "list": "export-jobs"
+          },
+          "sample": {
+            "body": {
+              "email": "alice@example.com",
+              "requestedAt": "2026-11-04T10:00:00"
+            }
+          }
+        }
+      },
+      {
+        "id": "customer-orders",
+        "type": "database",
+        "x": 280,
+        "y": 200,
+        "params": {
+          "credential": "shop-db",
+          "maxRows": 10000,
+          "query": "SELECT order_no, total, currency, status, created_at FROM shop_orders WHERE customer_email = :email ORDER BY created_at DESC",
+          "params": {
+            "email": "{{ trigger.body.email }}"
+          }
+        }
+      },
+      {
+        "id": "build-file",
+        "type": "spreadsheet",
+        "x": 520,
+        "y": 200,
+        "params": {
+          "rows": "{{ input.rows }}",
+          "format": "xlsx",
+          "fileName": "my-orders-{{ today }}",
+          "sheetName": "Orders"
+        }
+      },
+      {
+        "id": "send-to-customer",
+        "type": "email",
+        "x": 760,
+        "y": 200,
+        "params": {
+          "credential": "smtp",
+          "to": "{{ trigger.body.email }}",
+          "subject": "Your order history export",
+          "text": "Hi,\n\nAs requested on {{ trigger.body.requestedAt }}, your order history ({{ nodes['customer-orders'].count }} orders) is attached.\n\nThe Shop team",
+          "attachments": "{{ input.file }}"
+        }
+      },
+      {
+        "id": "done",
+        "type": "log",
+        "x": 1000,
+        "y": 200,
+        "params": {
+          "message": "Export sent to {{ trigger.body.email }} ({{ nodes['customer-orders'].count }} rows)"
+        }
+      }
+    ],
+    "connections": [
+      {
+        "from": "export-jobs",
+        "to": "customer-orders"
+      },
+      {
+        "from": "customer-orders",
+        "to": "build-file"
+      },
+      {
+        "from": "build-file",
+        "to": "send-to-customer"
+      },
+      {
+        "from": "send-to-customer",
+        "to": "done"
+      }
+    ]
+  }
+]

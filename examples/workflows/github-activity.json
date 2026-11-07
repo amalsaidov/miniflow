@@ -1,0 +1,137 @@
+{
+  "id": "github-activity",
+  "name": "GitHub activity of a user (every 15 min)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "every-15-min",
+      "type": "trigger",
+      "x": 40,
+      "y": 200,
+      "params": {
+        "cron": "*/15 * * * *",
+        "sample": {}
+      }
+    },
+    {
+      "id": "events",
+      "type": "http",
+      "x": 280,
+      "y": 200,
+      "params": {
+        "method": "GET",
+        "headers": {
+          "Accept": "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          "User-Agent": "MiniFlow",
+          "Authorization": "{{ vars.githubToken == null ? null : 'Bearer ' + vars.githubToken }}"
+        },
+        "url": "https://api.github.com/users/{{ vars.githubUser }}/events/public?per_page=1"
+      }
+    },
+    {
+      "id": "has-event",
+      "type": "if",
+      "x": 520,
+      "y": 200,
+      "params": {
+        "condition": "{{ input.ok and input.body.size() > 0 }}"
+      }
+    },
+    {
+      "id": "latest-event",
+      "type": "set",
+      "x": 760,
+      "y": 140,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "id": "{{ input.body[0].id }}",
+          "type": "{{ input.body[0].type }}",
+          "actor": "{{ input.body[0].actor.login }}",
+          "repo": "{{ input.body[0].repo.name }}",
+          "action": "{{ input.body[0].payload.action }}",
+          "ref": "{{ input.body[0].payload.ref }}",
+          "refType": "{{ input.body[0].payload.ref_type }}",
+          "head": "{{ input.body[0].payload.head }}",
+          "createdAt": "{{ input.body[0].created_at }}"
+        }
+      }
+    },
+    {
+      "id": "is-new",
+      "type": "dedupe",
+      "x": 1000,
+      "y": 140,
+      "params": {
+        "key": "{{ input.id }}"
+      }
+    },
+    {
+      "id": "message",
+      "type": "set",
+      "x": 1240,
+      "y": 60,
+      "params": {
+        "values": {
+          "text": "{{ input.type == 'PushEvent' ? '📦 ' + input.actor + ' pushed to ' + input.repo + '@' + input.ref.replace('refs/heads/', '') + ': https://github.com/' + input.repo + '/commit/' + input.head : (input.type == 'CreateEvent' ? '🆕 ' + input.actor + ' created ' + input.refType + (input.ref == null ? '' : ' ' + input.ref) + ' in ' + input.repo : (input.type == 'WatchEvent' ? '⭐ ' + input.actor + ' starred ' + input.repo : (input.type == 'ForkEvent' ? '🍴 ' + input.actor + ' forked ' + input.repo : '🔔 ' + input.actor + ' · ' + input.repo + ': ' + input.type + (input.action == null ? '' : ' (' + input.action + ')')))) }}"
+        }
+      }
+    },
+    {
+      "id": "send",
+      "type": "http",
+      "x": 1480,
+      "y": 60,
+      "params": {
+        "method": "POST",
+        "url": "{{ vars.alertWebhook }}",
+        "body": {
+          "text": "{{ input.text }}"
+        }
+      }
+    },
+    {
+      "id": "already-seen",
+      "type": "log",
+      "x": 1240,
+      "y": 260,
+      "params": {
+        "message": "No new event (latest: {{ input.type }} {{ input.createdAt }})"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "every-15-min",
+      "to": "events"
+    },
+    {
+      "from": "events",
+      "to": "has-event"
+    },
+    {
+      "from": "has-event",
+      "to": "latest-event",
+      "branch": "true"
+    },
+    {
+      "from": "latest-event",
+      "to": "is-new"
+    },
+    {
+      "from": "is-new",
+      "to": "message",
+      "branch": "new"
+    },
+    {
+      "from": "is-new",
+      "to": "already-seen",
+      "branch": "seen"
+    },
+    {
+      "from": "message",
+      "to": "send"
+    }
+  ]
+}

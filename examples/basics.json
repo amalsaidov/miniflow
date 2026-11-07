@@ -1,0 +1,1128 @@
+[
+  {
+    "id": "rain-alert",
+    "name": "Rain alert (every morning 07:30)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "every-morning",
+        "type": "trigger",
+        "x": 40,
+        "y": 200,
+        "params": {
+          "cron": "30 7 * * *",
+          "sample": {}
+        }
+      },
+      {
+        "id": "forecast",
+        "type": "http",
+        "x": 300,
+        "y": 200,
+        "params": {
+          "method": "GET",
+          "url": "https://api.open-meteo.com/v1/forecast?latitude=41.01&longitude=28.98&daily=precipitation_probability_max,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=1"
+        }
+      },
+      {
+        "id": "today",
+        "type": "set",
+        "x": 560,
+        "y": 200,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "rain": "{{ input.body.daily.precipitation_probability_max[0] }}",
+            "max": "{{ input.body.daily.temperature_2m_max[0] }}",
+            "min": "{{ input.body.daily.temperature_2m_min[0] }}"
+          }
+        }
+      },
+      {
+        "id": "rain-likely",
+        "type": "if",
+        "x": 820,
+        "y": 200,
+        "params": {
+          "condition": "{{ input.rain != null and input.rain >= 50 }}"
+        }
+      },
+      {
+        "id": "umbrella-alert",
+        "type": "http",
+        "x": 1080,
+        "y": 90,
+        "params": {
+          "method": "POST",
+          "url": "{{ vars.alertWebhook }}",
+          "body": {
+            "text": "☔ {{ input.rain }}% chance of rain today. Take an umbrella! ({{ input.min }}°C / {{ input.max }}°C)"
+          }
+        }
+      },
+      {
+        "id": "dry-day",
+        "type": "log",
+        "x": 1080,
+        "y": 320,
+        "params": {
+          "message": "No rain expected today ({{ input.rain }}%), {{ input.min }}–{{ input.max }}°C"
+        }
+      }
+    ],
+    "connections": [
+      {
+        "from": "every-morning",
+        "to": "forecast"
+      },
+      {
+        "from": "forecast",
+        "to": "today"
+      },
+      {
+        "from": "today",
+        "to": "rain-likely"
+      },
+      {
+        "from": "rain-likely",
+        "to": "umbrella-alert",
+        "branch": "true"
+      },
+      {
+        "from": "rain-likely",
+        "to": "dry-day",
+        "branch": "false"
+      }
+    ]
+  },
+  {
+    "id": "morning-briefing",
+    "name": "Morning briefing: weather + FX (weekdays 08:00)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "weekdays-0800",
+        "type": "trigger",
+        "x": 40,
+        "y": 200,
+        "params": {
+          "cron": "0 8 * * MON-FRI",
+          "sample": {}
+        }
+      },
+      {
+        "id": "weather",
+        "type": "http",
+        "x": 300,
+        "y": 200,
+        "params": {
+          "method": "GET",
+          "url": "https://api.open-meteo.com/v1/forecast?latitude=41.01&longitude=28.98&current=temperature_2m&daily=temperature_2m_max,precipitation_probability_max&timezone=auto&forecast_days=1"
+        }
+      },
+      {
+        "id": "rates",
+        "type": "http",
+        "x": 560,
+        "y": 200,
+        "params": {
+          "method": "GET",
+          "url": "https://api.frankfurter.dev/v1/latest?base=EUR&symbols=TRY,USD"
+        }
+      },
+      {
+        "id": "message",
+        "type": "set",
+        "x": 820,
+        "y": 200,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "text": "Good morning! ☀️ {{ today }}\nIstanbul: now {{ nodes['weather'].body.current.temperature_2m }}°C, high {{ nodes['weather'].body.daily.temperature_2m_max[0] }}°C, rain {{ nodes['weather'].body.daily.precipitation_probability_max[0] }}%\nEUR/TRY: {{ ((input.body.rates.TRY) * 100 + 0.5).intValue() / 100.0 }} · USD/TRY: {{ ((input.body.rates.TRY / input.body.rates.USD) * 100 + 0.5).intValue() / 100.0 }}"
+          }
+        }
+      },
+      {
+        "id": "send",
+        "type": "http",
+        "x": 1080,
+        "y": 200,
+        "params": {
+          "method": "POST",
+          "url": "{{ vars.alertWebhook }}",
+          "body": {
+            "text": "{{ input.text }}"
+          }
+        }
+      }
+    ],
+    "connections": [
+      {
+        "from": "weekdays-0800",
+        "to": "weather"
+      },
+      {
+        "from": "weather",
+        "to": "rates"
+      },
+      {
+        "from": "rates",
+        "to": "message"
+      },
+      {
+        "from": "message",
+        "to": "send"
+      }
+    ]
+  },
+  {
+    "id": "earthquake-alert",
+    "name": "Earthquake alert: Türkiye region, M4.5+ (every 10 min)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "every-10-min",
+        "type": "trigger",
+        "x": 40,
+        "y": 200,
+        "params": {
+          "cron": "*/10 * * * *",
+          "sample": {}
+        }
+      },
+      {
+        "id": "latest-quake",
+        "type": "http",
+        "x": 300,
+        "y": 200,
+        "params": {
+          "method": "GET",
+          "url": "https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&minmagnitude=4.5&minlatitude=35.5&maxlatitude=42.5&minlongitude=25.5&maxlongitude=45&orderby=time&limit=1"
+        }
+      },
+      {
+        "id": "is-recent",
+        "type": "if",
+        "x": 560,
+        "y": 200,
+        "params": {
+          "condition": "{{ input.body.features.size() > 0 and input.body.features[0].properties.time > nowMillis - 600000 }}"
+        }
+      },
+      {
+        "id": "summary",
+        "type": "set",
+        "x": 820,
+        "y": 200,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "mag": "{{ input.body.features[0].properties.mag }}",
+            "place": "{{ input.body.features[0].properties.place }}",
+            "url": "{{ input.body.features[0].properties.url }}"
+          }
+        }
+      },
+      {
+        "id": "notify",
+        "type": "http",
+        "x": 1080,
+        "y": 200,
+        "params": {
+          "method": "POST",
+          "url": "{{ vars.alertWebhook }}",
+          "body": {
+            "text": "⚠️ Earthquake: M{{ input.mag }}, {{ input.place }}. Details: {{ input.url }}"
+          }
+        }
+      }
+    ],
+    "connections": [
+      {
+        "from": "every-10-min",
+        "to": "latest-quake"
+      },
+      {
+        "from": "latest-quake",
+        "to": "is-recent"
+      },
+      {
+        "from": "is-recent",
+        "to": "summary",
+        "branch": "true"
+      },
+      {
+        "from": "summary",
+        "to": "notify"
+      }
+    ]
+  },
+  {
+    "id": "crypto-price-alert",
+    "name": "Bitcoin price alert (every 15 min)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "every-15-min",
+        "type": "trigger",
+        "x": 40,
+        "y": 200,
+        "params": {
+          "cron": "*/15 * * * *",
+          "sample": {}
+        }
+      },
+      {
+        "id": "fetch-prices",
+        "type": "http",
+        "x": 300,
+        "y": 200,
+        "params": {
+          "method": "GET",
+          "url": "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd",
+          "headers": {
+            "accept": "application/json"
+          }
+        }
+      },
+      {
+        "id": "prices",
+        "type": "set",
+        "x": 560,
+        "y": 200,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "btc": "{{ input.body.bitcoin.usd }}",
+            "eth": "{{ input.body.ethereum.usd }}"
+          }
+        }
+      },
+      {
+        "id": "dropped",
+        "type": "if",
+        "x": 820,
+        "y": 200,
+        "params": {
+          "condition": "{{ input.btc < 60000 }}"
+        }
+      },
+      {
+        "id": "drop-alert",
+        "type": "http",
+        "x": 1080,
+        "y": 60,
+        "params": {
+          "method": "POST",
+          "url": "{{ vars.alertWebhook }}",
+          "body": {
+            "text": "📉 BTC at ${{ input.btc }} (floor $60,000). ETH: ${{ input.eth }}"
+          }
+        }
+      },
+      {
+        "id": "spiked",
+        "type": "if",
+        "x": 1080,
+        "y": 300,
+        "params": {
+          "condition": "{{ input.btc > 150000 }}"
+        }
+      },
+      {
+        "id": "spike-alert",
+        "type": "http",
+        "x": 1340,
+        "y": 200,
+        "params": {
+          "method": "POST",
+          "url": "{{ vars.alertWebhook }}",
+          "body": {
+            "text": "📈 BTC at ${{ input.btc }} (ceiling $150,000). ETH: ${{ input.eth }}"
+          }
+        }
+      },
+      {
+        "id": "in-range",
+        "type": "log",
+        "x": 1340,
+        "y": 420,
+        "params": {
+          "message": "BTC ${{ input.btc }}, ETH ${{ input.eth }} (in range)"
+        }
+      }
+    ],
+    "connections": [
+      {
+        "from": "every-15-min",
+        "to": "fetch-prices"
+      },
+      {
+        "from": "fetch-prices",
+        "to": "prices"
+      },
+      {
+        "from": "prices",
+        "to": "dropped"
+      },
+      {
+        "from": "dropped",
+        "to": "drop-alert",
+        "branch": "true"
+      },
+      {
+        "from": "dropped",
+        "to": "spiked",
+        "branch": "false"
+      },
+      {
+        "from": "spiked",
+        "to": "spike-alert",
+        "branch": "true"
+      },
+      {
+        "from": "spiked",
+        "to": "in-range",
+        "branch": "false"
+      }
+    ]
+  },
+  {
+    "id": "github-push",
+    "name": "GitHub webhook events: push, PR, issue, star",
+    "active": true,
+    "nodes": [
+      {
+        "id": "github",
+        "type": "trigger",
+        "x": 40,
+        "y": 320,
+        "params": {
+          "path": "github",
+          "signatureSecretVar": "githubWebhookSecret",
+          "sample": {
+            "_headers": {
+              "x-github-event": "push"
+            },
+            "ref": "refs/heads/main",
+            "repository": {
+              "full_name": "omernaci/medium-samples",
+              "stargazers_count": 3
+            },
+            "pusher": {
+              "name": "omernaci"
+            },
+            "sender": {
+              "login": "omernaci"
+            },
+            "commits": [
+              {
+                "message": "Update sample code"
+              },
+              {
+                "message": "Fix README"
+              }
+            ],
+            "head_commit": {
+              "message": "Fix README"
+            },
+            "compare": "https://github.com/omernaci/medium-samples/compare/abc...def"
+          }
+        }
+      },
+      {
+        "id": "event",
+        "type": "set",
+        "x": 260,
+        "y": 320,
+        "params": {
+          "values": {
+            "event": "{{ input._headers == null ? null : input._headers['x-github-event'] }}"
+          }
+        }
+      },
+      {
+        "id": "is-ping",
+        "type": "if",
+        "x": 500,
+        "y": 40,
+        "params": {
+          "condition": "{{ input.event == 'ping' }}"
+        }
+      },
+      {
+        "id": "pong",
+        "type": "set",
+        "x": 760,
+        "y": 0,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "ok": true,
+            "message": "pong: webhook connection works",
+            "hookId": "{{ input.hook_id }}"
+          }
+        }
+      },
+      {
+        "id": "is-push",
+        "type": "if",
+        "x": 500,
+        "y": 180,
+        "params": {
+          "condition": "{{ input.event == 'push' and input.commits != null and input.commits.size() > 0 }}"
+        }
+      },
+      {
+        "id": "push-message",
+        "type": "set",
+        "x": 760,
+        "y": 140,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "text": "🚀 {{ input.pusher.name }} pushed {{ input.commits.size() }} commit(s) to {{ input.repository.full_name }}@{{ input.ref.replace('refs/heads/', '') }}: \"{{ input.head_commit.message }}\"\n{{ input.compare }}"
+          }
+        }
+      },
+      {
+        "id": "is-pr",
+        "type": "if",
+        "x": 500,
+        "y": 320,
+        "params": {
+          "condition": "{{ input.event == 'pull_request' }}"
+        }
+      },
+      {
+        "id": "pr-message",
+        "type": "set",
+        "x": 760,
+        "y": 280,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "text": "🔀 PR #{{ input.number }} {{ input.action }}: {{ input.pull_request.title }} ({{ input.sender.login }})\n{{ input.pull_request.html_url }}"
+          }
+        }
+      },
+      {
+        "id": "is-issue",
+        "type": "if",
+        "x": 500,
+        "y": 460,
+        "params": {
+          "condition": "{{ input.event == 'issues' }}"
+        }
+      },
+      {
+        "id": "issue-message",
+        "type": "set",
+        "x": 760,
+        "y": 420,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "text": "🐞 Issue #{{ input.issue.number }} {{ input.action }}: {{ input.issue.title }} ({{ input.sender.login }})\n{{ input.issue.html_url }}"
+          }
+        }
+      },
+      {
+        "id": "is-star",
+        "type": "if",
+        "x": 500,
+        "y": 600,
+        "params": {
+          "condition": "{{ input.event == 'star' }}"
+        }
+      },
+      {
+        "id": "star-message",
+        "type": "set",
+        "x": 760,
+        "y": 560,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "text": "{{ input.action == 'created' ? '⭐ ' + input.sender.login + ' starred ' + input.repository.full_name + ' (total ' + input.repository.stargazers_count + ')' : '💔 ' + input.sender.login + ' unstarred ' + input.repository.full_name }}"
+          }
+        }
+      },
+      {
+        "id": "other",
+        "type": "set",
+        "x": 760,
+        "y": 720,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "ok": true,
+            "ignored": "'{{ input.event }}' event not handled"
+          }
+        }
+      },
+      {
+        "id": "send",
+        "type": "http",
+        "x": 1040,
+        "y": 320,
+        "params": {
+          "method": "POST",
+          "url": "{{ vars.alertWebhook }}",
+          "body": {
+            "text": "{{ input.text }}"
+          }
+        }
+      },
+      {
+        "id": "done",
+        "type": "set",
+        "x": 1300,
+        "y": 320,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "ok": true,
+            "event": "{{ nodes['event'].event }}"
+          }
+        }
+      }
+    ],
+    "connections": [
+      {
+        "from": "github",
+        "to": "event"
+      },
+      {
+        "from": "event",
+        "to": "is-ping"
+      },
+      {
+        "from": "is-ping",
+        "to": "pong",
+        "branch": "true"
+      },
+      {
+        "from": "is-ping",
+        "to": "is-push",
+        "branch": "false"
+      },
+      {
+        "from": "is-push",
+        "to": "push-message",
+        "branch": "true"
+      },
+      {
+        "from": "is-push",
+        "to": "is-pr",
+        "branch": "false"
+      },
+      {
+        "from": "is-pr",
+        "to": "pr-message",
+        "branch": "true"
+      },
+      {
+        "from": "is-pr",
+        "to": "is-issue",
+        "branch": "false"
+      },
+      {
+        "from": "is-issue",
+        "to": "issue-message",
+        "branch": "true"
+      },
+      {
+        "from": "is-issue",
+        "to": "is-star",
+        "branch": "false"
+      },
+      {
+        "from": "is-star",
+        "to": "star-message",
+        "branch": "true"
+      },
+      {
+        "from": "is-star",
+        "to": "other",
+        "branch": "false"
+      },
+      {
+        "from": "push-message",
+        "to": "send"
+      },
+      {
+        "from": "pr-message",
+        "to": "send"
+      },
+      {
+        "from": "issue-message",
+        "to": "send"
+      },
+      {
+        "from": "star-message",
+        "to": "send"
+      },
+      {
+        "from": "send",
+        "to": "done"
+      }
+    ]
+  },
+  {
+    "id": "support-ticket-router",
+    "name": "Support ticket router (webhook)",
+    "active": true,
+    "nodes": [
+      {
+        "id": "ticket",
+        "type": "trigger",
+        "x": 40,
+        "y": 220,
+        "params": {
+          "path": "ticket",
+          "sample": {
+            "email": "alice@example.com",
+            "subject": "I was charged twice",
+            "category": "billing",
+            "priority": "normal",
+            "message": "My October invoice was charged twice."
+          }
+        }
+      },
+      {
+        "id": "is-valid",
+        "type": "if",
+        "x": 280,
+        "y": 220,
+        "params": {
+          "condition": "{{ input.email != null and input.email.contains('@') and input.subject != null }}"
+        }
+      },
+      {
+        "id": "assign-number",
+        "type": "set",
+        "x": 520,
+        "y": 120,
+        "params": {
+          "values": {
+            "ticketNo": "TKT-{{ nowMillis }}",
+            "priority": "{{ input.priority == null ? 'normal' : input.priority.toLowerCase() }}",
+            "category": "{{ input.category == null ? 'general' : input.category.toLowerCase() }}"
+          }
+        }
+      },
+      {
+        "id": "is-urgent",
+        "type": "if",
+        "x": 760,
+        "y": 120,
+        "params": {
+          "condition": "{{ input.priority == 'high' or input.priority == 'urgent' }}"
+        }
+      },
+      {
+        "id": "urgent-alert",
+        "type": "http",
+        "x": 1000,
+        "y": 20,
+        "params": {
+          "method": "POST",
+          "url": "{{ vars.alertWebhook }}",
+          "body": {
+            "text": "🔴 URGENT {{ input.ticketNo }}: {{ input.subject }} ({{ input.email }})"
+          }
+        }
+      },
+      {
+        "id": "is-billing",
+        "type": "if",
+        "x": 1000,
+        "y": 220,
+        "params": {
+          "condition": "{{ input.category == 'billing' }}"
+        }
+      },
+      {
+        "id": "billing-team",
+        "type": "http",
+        "x": 1240,
+        "y": 140,
+        "params": {
+          "method": "POST",
+          "url": "{{ vars.alertWebhook }}",
+          "body": {
+            "text": "💳 Billing ticket {{ input.ticketNo }}: {{ input.subject }} ({{ input.email }})"
+          }
+        }
+      },
+      {
+        "id": "general-queue",
+        "type": "log",
+        "x": 1240,
+        "y": 320,
+        "params": {
+          "message": "General queue: {{ input.ticketNo }} {{ input.subject }}"
+        }
+      },
+      {
+        "id": "reply",
+        "type": "set",
+        "x": 1500,
+        "y": 120,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "ok": true,
+            "ticketNo": "{{ nodes['assign-number'].ticketNo }}",
+            "message": "We received your request. Your ticket number is {{ nodes['assign-number'].ticketNo }}"
+          }
+        }
+      },
+      {
+        "id": "invalid",
+        "type": "set",
+        "x": 520,
+        "y": 360,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "ok": false,
+            "error": "email and subject are required"
+          }
+        }
+      }
+    ],
+    "connections": [
+      {
+        "from": "ticket",
+        "to": "is-valid"
+      },
+      {
+        "from": "is-valid",
+        "to": "assign-number",
+        "branch": "true"
+      },
+      {
+        "from": "is-valid",
+        "to": "invalid",
+        "branch": "false"
+      },
+      {
+        "from": "assign-number",
+        "to": "is-urgent"
+      },
+      {
+        "from": "is-urgent",
+        "to": "urgent-alert",
+        "branch": "true"
+      },
+      {
+        "from": "is-urgent",
+        "to": "is-billing",
+        "branch": "false"
+      },
+      {
+        "from": "is-billing",
+        "to": "billing-team",
+        "branch": "true"
+      },
+      {
+        "from": "is-billing",
+        "to": "general-queue",
+        "branch": "false"
+      },
+      {
+        "from": "urgent-alert",
+        "to": "reply"
+      },
+      {
+        "from": "billing-team",
+        "to": "reply"
+      },
+      {
+        "from": "general-queue",
+        "to": "reply"
+      }
+    ]
+  },
+  {
+    "id": "cart-calculator",
+    "name": "Cart calculator: coupon + shipping + VAT (webhook, offline)",
+    "active": true,
+    "nodes": [
+      {
+        "id": "cart",
+        "type": "trigger",
+        "x": 40,
+        "y": 220,
+        "params": {
+          "path": "cart",
+          "sample": {
+            "product": "Headphones",
+            "price": 450,
+            "qty": 2,
+            "coupon": "SAVE10"
+          }
+        }
+      },
+      {
+        "id": "is-valid",
+        "type": "if",
+        "x": 280,
+        "y": 220,
+        "params": {
+          "condition": "{{ input.price != null and input.qty != null and input.qty > 0 }}"
+        }
+      },
+      {
+        "id": "subtotal",
+        "type": "set",
+        "x": 520,
+        "y": 120,
+        "params": {
+          "values": {
+            "subtotal": "{{ input.price * input.qty }}"
+          }
+        }
+      },
+      {
+        "id": "has-coupon",
+        "type": "if",
+        "x": 760,
+        "y": 120,
+        "params": {
+          "condition": "{{ input.coupon != null and input.coupon.toUpperCase() == 'SAVE10' }}"
+        }
+      },
+      {
+        "id": "ten-percent-off",
+        "type": "set",
+        "x": 1000,
+        "y": 30,
+        "params": {
+          "values": {
+            "discount": "{{ (input.subtotal * 10 + 0.5).intValue() / 100.0 }}"
+          }
+        }
+      },
+      {
+        "id": "no-discount",
+        "type": "set",
+        "x": 1000,
+        "y": 220,
+        "params": {
+          "values": {
+            "discount": 0
+          }
+        }
+      },
+      {
+        "id": "shipping",
+        "type": "set",
+        "x": 1240,
+        "y": 120,
+        "params": {
+          "values": {
+            "shipping": "{{ input.subtotal - input.discount >= 500 ? 0 : 49.90 }}"
+          }
+        }
+      },
+      {
+        "id": "summary",
+        "type": "set",
+        "x": 1480,
+        "y": 120,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "product": "{{ input.product }}",
+            "qty": "{{ input.qty }}",
+            "subtotal": "{{ input.subtotal }}",
+            "discount": "{{ input.discount }}",
+            "shipping": "{{ input.shipping }}",
+            "total": "{{ ((input.subtotal - input.discount + input.shipping) * 100 + 0.5).intValue() / 100.0 }}",
+            "vatIncluded": "{{ (((input.subtotal - input.discount) * 20 / 120.0) * 100 + 0.5).intValue() / 100.0 }}"
+          }
+        }
+      },
+      {
+        "id": "invalid",
+        "type": "set",
+        "x": 520,
+        "y": 360,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "error": "price and qty (> 0) are required",
+            "example": {
+              "product": "Pen",
+              "price": 25,
+              "qty": 4
+            }
+          }
+        }
+      }
+    ],
+    "connections": [
+      {
+        "from": "cart",
+        "to": "is-valid"
+      },
+      {
+        "from": "is-valid",
+        "to": "subtotal",
+        "branch": "true"
+      },
+      {
+        "from": "is-valid",
+        "to": "invalid",
+        "branch": "false"
+      },
+      {
+        "from": "subtotal",
+        "to": "has-coupon"
+      },
+      {
+        "from": "has-coupon",
+        "to": "ten-percent-off",
+        "branch": "true"
+      },
+      {
+        "from": "has-coupon",
+        "to": "no-discount",
+        "branch": "false"
+      },
+      {
+        "from": "ten-percent-off",
+        "to": "shipping"
+      },
+      {
+        "from": "no-discount",
+        "to": "shipping"
+      },
+      {
+        "from": "shipping",
+        "to": "summary"
+      }
+    ]
+  },
+  {
+    "id": "fx-rate-api",
+    "name": "Mini FX API: /webhook/fx-rate?from=USD&to=TRY",
+    "active": true,
+    "nodes": [
+      {
+        "id": "request",
+        "type": "trigger",
+        "x": 40,
+        "y": 200,
+        "params": {
+          "path": "fx-rate",
+          "sample": {
+            "from": "EUR",
+            "to": "TRY"
+          }
+        }
+      },
+      {
+        "id": "has-params",
+        "type": "if",
+        "x": 280,
+        "y": 200,
+        "params": {
+          "condition": "{{ input.from != null and input.to != null }}"
+        }
+      },
+      {
+        "id": "fetch-rate",
+        "type": "http",
+        "x": 520,
+        "y": 100,
+        "params": {
+          "method": "GET",
+          "failOnError": false,
+          "url": "https://api.frankfurter.dev/v1/latest?base={{ input.from.trim().toUpperCase() }}&symbols={{ input.to.trim().toUpperCase() }}"
+        }
+      },
+      {
+        "id": "found",
+        "type": "if",
+        "x": 760,
+        "y": 100,
+        "params": {
+          "condition": "{{ input.ok and input.body.rates != null and input.body.rates.size() > 0 }}"
+        }
+      },
+      {
+        "id": "reply",
+        "type": "set",
+        "x": 1000,
+        "y": 20,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "from": "{{ input.body.base }}",
+            "to": "{{ trigger.to.trim().toUpperCase() }}",
+            "rate": "{{ input.body.rates[trigger.to.trim().toUpperCase()] }}",
+            "date": "{{ input.body.date }}"
+          }
+        }
+      },
+      {
+        "id": "not-found",
+        "type": "set",
+        "x": 1000,
+        "y": 200,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "error": "Rate not found: {{ trigger.from }} → {{ trigger.to }}"
+          }
+        }
+      },
+      {
+        "id": "missing-params",
+        "type": "set",
+        "x": 520,
+        "y": 320,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "error": "from and to are required. Example: /webhook/fx-rate?from=USD&to=TRY"
+          }
+        }
+      }
+    ],
+    "connections": [
+      {
+        "from": "request",
+        "to": "has-params"
+      },
+      {
+        "from": "has-params",
+        "to": "fetch-rate",
+        "branch": "true"
+      },
+      {
+        "from": "has-params",
+        "to": "missing-params",
+        "branch": "false"
+      },
+      {
+        "from": "fetch-rate",
+        "to": "found"
+      },
+      {
+        "from": "found",
+        "to": "reply",
+        "branch": "true"
+      },
+      {
+        "from": "found",
+        "to": "not-found",
+        "branch": "false"
+      }
+    ]
+  }
+]

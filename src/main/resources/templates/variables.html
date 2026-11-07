@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:lang="${#locale.language}">
+<head>
+    <th:block th:replace="~{fragments :: headCommon(#{var.title})}"></th:block>
+</head>
+<body>
+<header th:replace="~{fragments :: topbar('variables')}"></header>
+
+<main class="page">
+    <div class="page-head">
+        <h1 th:text="#{var.title}">Variables</h1>
+    </div>
+    <p class="muted" th:utext="#{var.intro}">Use as {{ vars.name }} in workflows.</p>
+
+    <p class="flash error" th:if="${error}" th:text="${error}"></p>
+    <p class="flash success" th:if="${success}" th:text="${success}"></p>
+
+    <form class="card form var-form" th:action="@{/variables}" method="post">
+        <h3 th:text="${form.originalName().isEmpty()} ? #{var.form.new} : #{var.form.edit(${form.originalName()})}">New variable</h3>
+        <input type="hidden" name="originalName" th:value="${form.originalName()}">
+        <div class="var-grid">
+            <label>
+                <span th:text="#{var.form.name}">Ad</span>
+                <input name="name" th:value="${form.name()}" pattern="[A-Za-z_][A-Za-z0-9_]{0,99}" required spellcheck="false">
+                <small class="muted" th:text="#{var.form.nameHint}">ipucu</small>
+            </label>
+            <label>
+                <span th:text="#{var.form.value}">Value</span>
+                <input name="value" th:value="${form.value()}" spellcheck="false">
+            </label>
+            <label>
+                <span th:text="#{var.form.description}">Description</span>
+                <input name="description" th:value="${form.description()}">
+            </label>
+        </div>
+        <div class="row">
+            <span class="spacer"></span>
+            <a class="btn" th:if="${!form.name().isEmpty()}" th:href="@{/variables}" th:text="#{common.cancel}">Cancel</a>
+            <button class="btn primary" type="submit" th:text="#{common.save}">Kaydet</button>
+        </div>
+    </form>
+
+    <div class="card">
+        <div class="table-wrap">
+            <table class="table">
+                <thead>
+                <tr>
+                    <th th:text="#{var.col.name}">Ad</th>
+                    <th th:text="#{var.col.value}">Value</th>
+                    <th class="hide-sm" th:text="#{var.col.description}">Description</th>
+                    <th class="hide-sm" th:text="#{var.col.source}">Kaynak</th>
+                    <th></th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr th:each="r : ${rows}">
+                    <td>
+                        <div class="cell-title" th:text="${r.name()}">ad</div>
+                        <div class="cell-sub"><code th:text="'{{ vars.' + ${r.name()} + ' }}'"></code></div>
+                    </td>
+                    <td class="var-value"><code th:text="${r.value()}" th:title="${r.value()}">value</code></td>
+                    <td class="hide-sm muted" th:text="${r.description()}"></td>
+                    <td class="hide-sm nowrap">
+                        <span class="tag" th:if="${r.fromDb()}" th:text="#{var.source.db}">Tablo</span>
+                        <span class="tag schedule" th:unless="${r.fromDb()}" th:text="#{var.source.config}">application.properties</span>
+                    </td>
+                    <td class="actions">
+                        <div class="actions-inner">
+                            <a class="btn sm" th:href="@{/variables(edit=${r.name()})}" th:text="#{common.edit}">Edit</a>
+                            <form th:if="${r.fromDb()}" th:action="@{/variables/{n}/delete(n=${r.name()})}" method="post"
+                                  th:data-confirm="#{var.delete.confirm}">
+                                <button class="btn sm danger" type="submit" th:text="#{common.delete}">Sil</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                <tr th:if="${rows.isEmpty()}">
+                    <td colspan="5" class="empty" th:text="#{var.empty}">No variables yet. Add one with the form above.</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</main>
+<script th:replace="~{fragments :: confirmScript}"></script>
+</body>
+</html>

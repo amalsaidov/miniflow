@@ -1,0 +1,72 @@
+# Temel kavramlar
+
+## Akış JSON'u
+```json
+{
+  "id": "order-flow",
+  "name": "Order processing",
+  "active": true,
+  "nodes": [
+    { "id": "start", "type": "trigger", "params": { "path": "orders", "sample": { "orderId": 42, "amount": 1500 } } },
+    { "id": "check", "type": "if",      "params": { "condition": "{{ input.amount > 1000 }}" } },
+    { "id": "big",   "type": "log",     "params": { "message": "LARGE order {{ input.orderId }}" } },
+    { "id": "small", "type": "log",     "params": { "message": "Regular order {{ input.orderId }}" } }
+  ],
+  "connections": [
+    { "from": "start", "to": "check" },
+    { "from": "check", "to": "big",   "branch": "true" },
+    { "from": "check", "to": "small", "branch": "false" }
+  ]
+}
+```
+- `id`: küçük harf, rakam ve tire. İçe/dışa aktarma ve adreslerde anahtar budur.
+- Her düğüm **önceki düğümün çıktısını** `input` olarak alır. Önceki tüm düğümlerin çıktısı `nodes['dugum-id']` ile okunur.
+- Düğümler tetikleyiciden başlayarak sırayla çalışır. Bir düğüm hata verirse o dal durur ve çalıştırma **ERROR** olur.
+
+## Tetikleyiciler
+| Tetikleyici | Parametre | Ne zaman çalışır | `trigger` / `input` içeriği |
+|---|---|---|---|
+| Manuel | — | Editörde *Test et* veya `POST /api/workflows/{id}/run` | Test verisi / istek gövdesi |
+| Webhook | `"path": "orders"` | `POST` veya `GET /webhook/orders` | JSON gövde, form alanları veya query parametreleri + `_headers` (küçük harf) |
+| Zamanlama | `"cron": "*/10 * * * *"` | Cron zamanında | `{}` |
+| Kuyruk | `"listen": { … }` | RabbitMQ / Kafka / Redis'ten gelen her mesajda | `{ "body": <mesaj>, … }` |
+
+**Aktif anahtarı:** Webhook, zamanlama ve kuyruk dinleyici yalnızca **aktif** akışlarda çalışır.
+İçe aktarılan örnekler pasif gelir: önce test edin, sonra aktifleştirin.
+
+**Webhook yanıtı:** Son çalışan düğümün çıktısı döner: `{ "executionId": "…", "status": "SUCCESS", "data": { "ok": true } }`.
+Hata olursa HTTP 500 ve `"data": {"error": "…"}`. Gövde JSON dizisiyse `{ "items": [...] }` olarak gelir.
+
+**İmzalı webhook (GitHub tarzı):** Tetikleyiciye `"signatureSecretVar": "githubWebhookSecret"` ekleyin. Değişken tanımlıysa
+`X-Hub-Signature-256` HMAC imzası doğrulanır, geçersiz istek 401 alır. Tanımlı değilse logda uyarı çıkar ve istek kabul edilir.
+
+**Cron** 5 alanlıdır (dakika saat gün ay haftanın-günü), sunucunun saat dilimini kullanır; 6 alan yazarsanız ilki saniyedir.
+
+| İfade | Anlamı |
+|---|---|
+| `*/5 * * * *` | 5 dakikada bir |
+| `0 9 * * *` | her gün 09:00 |
+| `45 7 * * MON-FRI` | hafta içi 07:45 |
+| `0 0 1 * *` | her ayın 1'i gece yarısı |
+
+**Kuyruk dinleyiciler:**
+```json
+"listen": { "type": "rabbitmq", "credential": "rabbitmq", "queue": "orders" }
+"listen": { "type": "kafka", "credential": "kafka", "topic": "payments.events", "group": "grubum", "fromBeginning": false }
+"listen": { "type": "redis", "credential": "redis", "list": "export-jobs" }      // iş kuyruğu (BLPOP), her mesajı tek tüketici alır
+"listen": { "type": "redis", "credential": "redis", "channel": "events" }        // pub/sub, dinleyen herkes alır
+```
+- Mesaj `trigger.body` içinde gelir (JSON ise nesne): `{{ trigger.body.orderNo }}`.
+- RabbitMQ: kuyruk yoksa kalıcı olarak oluşturulur; akış hata verse de mesaj onaylanır (sonsuz tekrar olmasın; hata Çalıştırmalar sayfasında).
+- Kafka: varsayılan grup `miniflow-<akış id>`; `fromBeginning: true` değilse yeni mesajlardan başlar.
+- Akış listesinde "⇄" etiketi, bağlanamazsa kırmızı **bağlanamadı** etiketi görünür (üzerine gelince sebep).
+- Kimlik bilgisini değiştirince akışı bir kez pasif/aktif yapın ki yeniden bağlansın.
+
+## Dedupe ("Yeni mi?")
+Zamanlanmış akışlar aynı veriyi tekrar tekrar görür. `dedupe` bir anahtarı `seen_keys` tablosunda hatırlar: ilk kez → **new**, sonra → **seen**.
+Sık kullanılan anahtarlar: `{{ input.id }}`, `order-{{ input.orderNo }}`, `incident-{{ now.substring(0, 13) }}` (= saatte bir).
+Manuel testler yalnızca kontrol eder, kaydetmez.
+
+## Çalıştırma geçmişi
+Her çalıştırma düğüm düğüm durum, dal, çıktı, hata ve süreyle saklanır. 20.000 karakteri aşan metinler (ör. dosya içeriği) geçmişte kısaltılır.
+`Authorization` ve `Cookie` başlıkları asla yazılmaz. Geçmiş `execution-retention-days` gün sonra silinir.

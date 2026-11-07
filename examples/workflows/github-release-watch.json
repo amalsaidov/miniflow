@@ -1,0 +1,115 @@
+{
+  "id": "github-release-watch",
+  "name": "New release watch (every 6 hours)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "every-6-hours",
+      "type": "trigger",
+      "x": 40,
+      "y": 200,
+      "params": {
+        "cron": "0 */6 * * *",
+        "sample": {}
+      }
+    },
+    {
+      "id": "latest-release",
+      "type": "http",
+      "x": 280,
+      "y": 200,
+      "params": {
+        "method": "GET",
+        "headers": {
+          "Accept": "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          "User-Agent": "MiniFlow",
+          "Authorization": "{{ vars.githubToken == null ? null : 'Bearer ' + vars.githubToken }}"
+        },
+        "failOnError": false,
+        "url": "https://api.github.com/repos/{{ vars.githubWatchRepo }}/releases/latest"
+      }
+    },
+    {
+      "id": "has-release",
+      "type": "if",
+      "x": 520,
+      "y": 200,
+      "params": {
+        "condition": "{{ input.ok }}"
+      }
+    },
+    {
+      "id": "is-new",
+      "type": "dedupe",
+      "x": 760,
+      "y": 140,
+      "params": {
+        "key": "{{ input.body.tag_name }}"
+      }
+    },
+    {
+      "id": "message",
+      "type": "set",
+      "x": 1000,
+      "y": 60,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "text": "🏷️ {{ vars.githubWatchRepo }} {{ input.body.tag_name }} released ({{ input.body.published_at }})\n{{ input.body.html_url }}"
+        }
+      }
+    },
+    {
+      "id": "send",
+      "type": "http",
+      "x": 1240,
+      "y": 60,
+      "params": {
+        "method": "POST",
+        "url": "{{ vars.alertWebhook }}",
+        "body": {
+          "text": "{{ input.text }}"
+        }
+      }
+    },
+    {
+      "id": "no-release",
+      "type": "log",
+      "x": 760,
+      "y": 320,
+      "params": {
+        "message": "No release found for {{ vars.githubWatchRepo }} (HTTP {{ input.status }})"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "every-6-hours",
+      "to": "latest-release"
+    },
+    {
+      "from": "latest-release",
+      "to": "has-release"
+    },
+    {
+      "from": "has-release",
+      "to": "is-new",
+      "branch": "true"
+    },
+    {
+      "from": "has-release",
+      "to": "no-release",
+      "branch": "false"
+    },
+    {
+      "from": "is-new",
+      "to": "message",
+      "branch": "new"
+    },
+    {
+      "from": "message",
+      "to": "send"
+    }
+  ]
+}

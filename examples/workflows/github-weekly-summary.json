@@ -1,0 +1,72 @@
+{
+  "id": "github-weekly-summary",
+  "name": "GitHub weekly repository summary (Monday 09:00)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "monday-0900",
+      "type": "trigger",
+      "x": 40,
+      "y": 200,
+      "params": {
+        "cron": "0 9 * * MON",
+        "sample": {}
+      }
+    },
+    {
+      "id": "repos",
+      "type": "http",
+      "x": 280,
+      "y": 200,
+      "params": {
+        "method": "GET",
+        "headers": {
+          "Accept": "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          "User-Agent": "MiniFlow",
+          "Authorization": "{{ vars.githubToken == null ? null : 'Bearer ' + vars.githubToken }}"
+        },
+        "url": "https://api.github.com/users/{{ vars.githubUser }}/repos?sort=pushed&per_page=10"
+      }
+    },
+    {
+      "id": "summary",
+      "type": "set",
+      "x": 520,
+      "y": 200,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "text": "📊 {{ vars.githubUser }} weekly summary: {{ input.body.?[!fork].size() }} own repos, {{ input.body.?[fork].size() }} forks\nRecently updated: {{ input.body.![name + ' ★' + stargazers_count].toString().replace('[', '').replace(']', '') }}"
+        }
+      }
+    },
+    {
+      "id": "send",
+      "type": "http",
+      "x": 760,
+      "y": 200,
+      "params": {
+        "method": "POST",
+        "url": "{{ vars.alertWebhook }}",
+        "body": {
+          "text": "{{ input.text }}"
+        }
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "monday-0900",
+      "to": "repos"
+    },
+    {
+      "from": "repos",
+      "to": "summary"
+    },
+    {
+      "from": "summary",
+      "to": "send"
+    }
+  ]
+}

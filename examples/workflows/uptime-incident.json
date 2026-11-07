@@ -1,0 +1,97 @@
+{
+  "id": "uptime-incident",
+  "name": "Uptime monitor: GitHub incident issue + Slack page (max 1/hour)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "every-5-min",
+      "type": "trigger",
+      "x": 40,
+      "y": 200,
+      "params": {
+        "cron": "*/5 * * * *",
+        "sample": {}
+      }
+    },
+    {
+      "id": "health-check",
+      "type": "http",
+      "x": 280,
+      "y": 200,
+      "params": {
+        "method": "GET",
+        "url": "{{ vars.healthCheckUrl }}",
+        "failOnError": false
+      }
+    },
+    {
+      "id": "is-down",
+      "type": "if",
+      "x": 520,
+      "y": 200,
+      "params": {
+        "condition": "{{ !input.ok }}"
+      }
+    },
+    {
+      "id": "first-this-hour",
+      "type": "dedupe",
+      "x": 760,
+      "y": 140,
+      "params": {
+        "key": "incident-{{ now.substring(0, 13) }}"
+      }
+    },
+    {
+      "id": "open-incident",
+      "type": "github",
+      "x": 1000,
+      "y": 80,
+      "params": {
+        "credential": "github",
+        "operation": "createIssue",
+        "repo": "{{ vars.githubRepo }}",
+        "title": "🚨 {{ vars.healthCheckUrl }} is down (HTTP {{ input.status }})",
+        "body": "Detected by MiniFlow at {{ now }}.\n\nStatus: {{ input.status }}\nError: {{ input.error }}\nResponse: {{ input.body }}",
+        "labels": [
+          "incident",
+          "monitoring"
+        ]
+      }
+    },
+    {
+      "id": "page-team",
+      "type": "slack",
+      "x": 1240,
+      "y": 80,
+      "params": {
+        "credential": "slack",
+        "text": "🚨 {{ vars.healthCheckUrl }} is DOWN (HTTP {{ nodes['health-check'].status }}). Incident: {{ input.url }}"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "every-5-min",
+      "to": "health-check"
+    },
+    {
+      "from": "health-check",
+      "to": "is-down"
+    },
+    {
+      "from": "is-down",
+      "to": "first-this-hour",
+      "branch": "true"
+    },
+    {
+      "from": "first-this-hour",
+      "to": "open-incident",
+      "branch": "new"
+    },
+    {
+      "from": "open-incident",
+      "to": "page-team"
+    }
+  ]
+}

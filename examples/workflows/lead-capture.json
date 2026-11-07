@@ -1,0 +1,153 @@
+{
+  "id": "lead-capture",
+  "name": "Landing page leads → Google Sheets + Slack (deduplicated)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "lead",
+      "type": "trigger",
+      "x": 40,
+      "y": 220,
+      "params": {
+        "path": "leads",
+        "sample": {
+          "name": "Carol White",
+          "email": "carol@acme.io",
+          "company": "Acme",
+          "plan": "business",
+          "utm_source": "linkedin"
+        }
+      }
+    },
+    {
+      "id": "is-valid",
+      "type": "if",
+      "x": 260,
+      "y": 220,
+      "params": {
+        "condition": "{{ input.email != null and input.email.contains('@') }}"
+      }
+    },
+    {
+      "id": "normalize",
+      "type": "set",
+      "x": 480,
+      "y": 140,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "name": "{{ input.name?.trim() }}",
+          "email": "{{ input.email.trim().toLowerCase() }}",
+          "company": "{{ input.company == null ? input.email.trim().toLowerCase().split('@')[1] : input.company }}",
+          "plan": "{{ input.plan == null ? 'unknown' : input.plan }}",
+          "source": "{{ input.utm_source == null ? 'direct' : input.utm_source }}",
+          "receivedAt": "{{ now }}"
+        }
+      }
+    },
+    {
+      "id": "is-new-lead",
+      "type": "dedupe",
+      "x": 700,
+      "y": 140,
+      "params": {
+        "key": "lead-{{ input.email }}"
+      }
+    },
+    {
+      "id": "append-to-crm-sheet",
+      "type": "googleSheets",
+      "x": 920,
+      "y": 60,
+      "params": {
+        "credential": "google",
+        "operation": "append",
+        "spreadsheetId": "{{ vars.leadsSheetId }}",
+        "range": "Leads",
+        "values": "{{ input }}",
+        "columns": [
+          "receivedAt",
+          "name",
+          "email",
+          "company",
+          "plan",
+          "source"
+        ]
+      }
+    },
+    {
+      "id": "notify-sales",
+      "type": "slack",
+      "x": 1140,
+      "y": 60,
+      "params": {
+        "credential": "slack",
+        "text": "🧲 New lead: {{ nodes['normalize'].name }} <{{ nodes['normalize'].email }}> from {{ nodes['normalize'].company }} · plan {{ nodes['normalize'].plan }} · via {{ nodes['normalize'].source }}"
+      }
+    },
+    {
+      "id": "thanks",
+      "type": "set",
+      "x": 1360,
+      "y": 140,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "ok": true,
+          "message": "Thanks! We'll be in touch shortly."
+        }
+      }
+    },
+    {
+      "id": "invalid",
+      "type": "set",
+      "x": 480,
+      "y": 360,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "ok": false,
+          "error": "A valid email is required"
+        }
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "lead",
+      "to": "is-valid"
+    },
+    {
+      "from": "is-valid",
+      "to": "normalize",
+      "branch": "true"
+    },
+    {
+      "from": "is-valid",
+      "to": "invalid",
+      "branch": "false"
+    },
+    {
+      "from": "normalize",
+      "to": "is-new-lead"
+    },
+    {
+      "from": "is-new-lead",
+      "to": "append-to-crm-sheet",
+      "branch": "new"
+    },
+    {
+      "from": "is-new-lead",
+      "to": "thanks",
+      "branch": "seen"
+    },
+    {
+      "from": "append-to-crm-sheet",
+      "to": "notify-sales"
+    },
+    {
+      "from": "notify-sales",
+      "to": "thanks"
+    }
+  ]
+}

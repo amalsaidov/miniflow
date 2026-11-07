@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:lang="${#locale.language}">
+<head>
+    <th:block th:replace="~{fragments :: headCommon(#{execs.title})}"></th:block>
+</head>
+<body>
+<header th:replace="~{fragments :: topbar('executions')}"></header>
+
+<main class="page">
+    <div class="page-head">
+        <h1 th:text="#{execs.title}">Executions</h1>
+    </div>
+    <form class="filter-bar" th:action="@{/executions}" method="get">
+        <select name="workflow" onchange="this.form.submit()" th:attr="aria-label=#{exec.col.workflow}">
+            <option value="" th:text="#{filter.workflow.any}">All workflows</option>
+            <option th:each="w : ${workflowOptions}" th:value="${w.id()}" th:text="${w.name()}"
+                    th:selected="${filter == w.id()}">workflow</option>
+        </select>
+        <select name="status" onchange="this.form.submit()" th:attr="aria-label=#{exec.col.status}">
+            <option value="" th:text="#{filter.status.any}">Any status</option>
+            <option value="SUCCESS" th:selected="${status == 'SUCCESS'}" th:text="#{status.SUCCESS}">Success</option>
+            <option value="ERROR" th:selected="${status == 'ERROR'}" th:text="#{status.ERROR}">Hata</option>
+        </select>
+        <select name="mode" onchange="this.form.submit()" th:attr="aria-label=#{exec.col.mode}">
+            <option value="" th:text="#{filter.mode.any}">Any trigger</option>
+            <option th:each="m : ${ {'webhook', 'schedule', 'queue', 'manual'} }" th:value="${m}"
+                    th:selected="${mode == m}" th:text="#{${'mode.' + m}}">webhook</option>
+        </select>
+        <input type="hidden" name="size" th:value="${pg.size()}">
+        <noscript><button class="btn" type="submit" th:text="#{filter.apply}">Filtrele</button></noscript>
+        <a class="btn ghost" th:if="${!#strings.isEmpty(filter) or !#strings.isEmpty(status) or !#strings.isEmpty(mode)}" th:href="@{/executions}"
+           th:text="#{filter.clear}">Temizle</a>
+    </form>
+    <div th:replace="~{fragments :: executionTable(${pg.items()})}"></div>
+    <div class="pager-outside">
+        <nav th:replace="~{fragments :: pagination(${pg})}"></nav>
+    </div>
+</main>
+</body>
+</html>

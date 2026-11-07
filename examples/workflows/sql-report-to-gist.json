@@ -1,0 +1,98 @@
+{
+  "id": "sql-report-to-gist",
+  "name": "Weekly SQL report → secret GitHub Gist (Monday 08:00)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "monday-0800",
+      "type": "trigger",
+      "x": 40,
+      "y": 200,
+      "params": {
+        "cron": "0 8 * * MON",
+        "sample": {}
+      }
+    },
+    {
+      "id": "weekly-stats",
+      "type": "database",
+      "x": 280,
+      "y": 200,
+      "params": {
+        "credential": "miniflow-db",
+        "maxRows": 500,
+        "query": "SELECT workflow_name AS workflow, COUNT(*) AS runs, SUM(CASE WHEN status = 'SUCCESS' THEN 1 ELSE 0 END) AS succeeded, SUM(CASE WHEN status = 'ERROR' THEN 1 ELSE 0 END) AS failed, ROUND(AVG(duration_ms)) AS avg_ms FROM executions WHERE started_at >= CURRENT_DATE - INTERVAL '7' DAY GROUP BY workflow_name ORDER BY runs DESC"
+      }
+    },
+    {
+      "id": "has-rows",
+      "type": "if",
+      "x": 520,
+      "y": 200,
+      "params": {
+        "condition": "{{ input.count > 0 }}"
+      }
+    },
+    {
+      "id": "create-gist",
+      "type": "github",
+      "x": 760,
+      "y": 120,
+      "params": {
+        "credential": "github",
+        "operation": "createGist",
+        "fileName": "miniflow-weekly-{{ today }}.md",
+        "description": "MiniFlow weekly execution report ({{ today }})",
+        "content": "{{ input.rows }}",
+        "public": false
+      }
+    },
+    {
+      "id": "result",
+      "type": "set",
+      "x": 1000,
+      "y": 120,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "ok": true,
+          "gist": "{{ input.url }}",
+          "workflows": "{{ nodes['weekly-stats'].count }}"
+        }
+      }
+    },
+    {
+      "id": "nothing-to-report",
+      "type": "log",
+      "x": 760,
+      "y": 300,
+      "params": {
+        "message": "No executions in the last 7 days, no gist created"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "monday-0800",
+      "to": "weekly-stats"
+    },
+    {
+      "from": "weekly-stats",
+      "to": "has-rows"
+    },
+    {
+      "from": "has-rows",
+      "to": "create-gist",
+      "branch": "true"
+    },
+    {
+      "from": "has-rows",
+      "to": "nothing-to-report",
+      "branch": "false"
+    },
+    {
+      "from": "create-gist",
+      "to": "result"
+    }
+  ]
+}

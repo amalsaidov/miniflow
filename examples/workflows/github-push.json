@@ -1,0 +1,282 @@
+{
+  "id": "github-push",
+  "name": "GitHub webhook events: push, PR, issue, star",
+  "active": true,
+  "nodes": [
+    {
+      "id": "github",
+      "type": "trigger",
+      "x": 40,
+      "y": 320,
+      "params": {
+        "path": "github",
+        "signatureSecretVar": "githubWebhookSecret",
+        "sample": {
+          "_headers": {
+            "x-github-event": "push"
+          },
+          "ref": "refs/heads/main",
+          "repository": {
+            "full_name": "omernaci/medium-samples",
+            "stargazers_count": 3
+          },
+          "pusher": {
+            "name": "omernaci"
+          },
+          "sender": {
+            "login": "omernaci"
+          },
+          "commits": [
+            {
+              "message": "Update sample code"
+            },
+            {
+              "message": "Fix README"
+            }
+          ],
+          "head_commit": {
+            "message": "Fix README"
+          },
+          "compare": "https://github.com/omernaci/medium-samples/compare/abc...def"
+        }
+      }
+    },
+    {
+      "id": "event",
+      "type": "set",
+      "x": 260,
+      "y": 320,
+      "params": {
+        "values": {
+          "event": "{{ input._headers == null ? null : input._headers['x-github-event'] }}"
+        }
+      }
+    },
+    {
+      "id": "is-ping",
+      "type": "if",
+      "x": 500,
+      "y": 40,
+      "params": {
+        "condition": "{{ input.event == 'ping' }}"
+      }
+    },
+    {
+      "id": "pong",
+      "type": "set",
+      "x": 760,
+      "y": 0,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "ok": true,
+          "message": "pong: webhook connection works",
+          "hookId": "{{ input.hook_id }}"
+        }
+      }
+    },
+    {
+      "id": "is-push",
+      "type": "if",
+      "x": 500,
+      "y": 180,
+      "params": {
+        "condition": "{{ input.event == 'push' and input.commits != null and input.commits.size() > 0 }}"
+      }
+    },
+    {
+      "id": "push-message",
+      "type": "set",
+      "x": 760,
+      "y": 140,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "text": "🚀 {{ input.pusher.name }} pushed {{ input.commits.size() }} commit(s) to {{ input.repository.full_name }}@{{ input.ref.replace('refs/heads/', '') }}: \"{{ input.head_commit.message }}\"\n{{ input.compare }}"
+        }
+      }
+    },
+    {
+      "id": "is-pr",
+      "type": "if",
+      "x": 500,
+      "y": 320,
+      "params": {
+        "condition": "{{ input.event == 'pull_request' }}"
+      }
+    },
+    {
+      "id": "pr-message",
+      "type": "set",
+      "x": 760,
+      "y": 280,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "text": "🔀 PR #{{ input.number }} {{ input.action }}: {{ input.pull_request.title }} ({{ input.sender.login }})\n{{ input.pull_request.html_url }}"
+        }
+      }
+    },
+    {
+      "id": "is-issue",
+      "type": "if",
+      "x": 500,
+      "y": 460,
+      "params": {
+        "condition": "{{ input.event == 'issues' }}"
+      }
+    },
+    {
+      "id": "issue-message",
+      "type": "set",
+      "x": 760,
+      "y": 420,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "text": "🐞 Issue #{{ input.issue.number }} {{ input.action }}: {{ input.issue.title }} ({{ input.sender.login }})\n{{ input.issue.html_url }}"
+        }
+      }
+    },
+    {
+      "id": "is-star",
+      "type": "if",
+      "x": 500,
+      "y": 600,
+      "params": {
+        "condition": "{{ input.event == 'star' }}"
+      }
+    },
+    {
+      "id": "star-message",
+      "type": "set",
+      "x": 760,
+      "y": 560,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "text": "{{ input.action == 'created' ? '⭐ ' + input.sender.login + ' starred ' + input.repository.full_name + ' (total ' + input.repository.stargazers_count + ')' : '💔 ' + input.sender.login + ' unstarred ' + input.repository.full_name }}"
+        }
+      }
+    },
+    {
+      "id": "other",
+      "type": "set",
+      "x": 760,
+      "y": 720,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "ok": true,
+          "ignored": "'{{ input.event }}' event not handled"
+        }
+      }
+    },
+    {
+      "id": "send",
+      "type": "http",
+      "x": 1040,
+      "y": 320,
+      "params": {
+        "method": "POST",
+        "url": "{{ vars.alertWebhook }}",
+        "body": {
+          "text": "{{ input.text }}"
+        }
+      }
+    },
+    {
+      "id": "done",
+      "type": "set",
+      "x": 1300,
+      "y": 320,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "ok": true,
+          "event": "{{ nodes['event'].event }}"
+        }
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "github",
+      "to": "event"
+    },
+    {
+      "from": "event",
+      "to": "is-ping"
+    },
+    {
+      "from": "is-ping",
+      "to": "pong",
+      "branch": "true"
+    },
+    {
+      "from": "is-ping",
+      "to": "is-push",
+      "branch": "false"
+    },
+    {
+      "from": "is-push",
+      "to": "push-message",
+      "branch": "true"
+    },
+    {
+      "from": "is-push",
+      "to": "is-pr",
+      "branch": "false"
+    },
+    {
+      "from": "is-pr",
+      "to": "pr-message",
+      "branch": "true"
+    },
+    {
+      "from": "is-pr",
+      "to": "is-issue",
+      "branch": "false"
+    },
+    {
+      "from": "is-issue",
+      "to": "issue-message",
+      "branch": "true"
+    },
+    {
+      "from": "is-issue",
+      "to": "is-star",
+      "branch": "false"
+    },
+    {
+      "from": "is-star",
+      "to": "star-message",
+      "branch": "true"
+    },
+    {
+      "from": "is-star",
+      "to": "other",
+      "branch": "false"
+    },
+    {
+      "from": "push-message",
+      "to": "send"
+    },
+    {
+      "from": "pr-message",
+      "to": "send"
+    },
+    {
+      "from": "issue-message",
+      "to": "send"
+    },
+    {
+      "from": "star-message",
+      "to": "send"
+    },
+    {
+      "from": "send",
+      "to": "done"
+    }
+  ]
+}

@@ -1,0 +1,80 @@
+{
+  "id": "morning-briefing",
+  "name": "Morning briefing: weather + FX (weekdays 08:00)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "weekdays-0800",
+      "type": "trigger",
+      "x": 40,
+      "y": 200,
+      "params": {
+        "cron": "0 8 * * MON-FRI",
+        "sample": {}
+      }
+    },
+    {
+      "id": "weather",
+      "type": "http",
+      "x": 300,
+      "y": 200,
+      "params": {
+        "method": "GET",
+        "url": "https://api.open-meteo.com/v1/forecast?latitude=41.01&longitude=28.98&current=temperature_2m&daily=temperature_2m_max,precipitation_probability_max&timezone=auto&forecast_days=1"
+      }
+    },
+    {
+      "id": "rates",
+      "type": "http",
+      "x": 560,
+      "y": 200,
+      "params": {
+        "method": "GET",
+        "url": "https://api.frankfurter.dev/v1/latest?base=EUR&symbols=TRY,USD"
+      }
+    },
+    {
+      "id": "message",
+      "type": "set",
+      "x": 820,
+      "y": 200,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "text": "Good morning! ☀️ {{ today }}\nIstanbul: now {{ nodes['weather'].body.current.temperature_2m }}°C, high {{ nodes['weather'].body.daily.temperature_2m_max[0] }}°C, rain {{ nodes['weather'].body.daily.precipitation_probability_max[0] }}%\nEUR/TRY: {{ ((input.body.rates.TRY) * 100 + 0.5).intValue() / 100.0 }} · USD/TRY: {{ ((input.body.rates.TRY / input.body.rates.USD) * 100 + 0.5).intValue() / 100.0 }}"
+        }
+      }
+    },
+    {
+      "id": "send",
+      "type": "http",
+      "x": 1080,
+      "y": 200,
+      "params": {
+        "method": "POST",
+        "url": "{{ vars.alertWebhook }}",
+        "body": {
+          "text": "{{ input.text }}"
+        }
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "weekdays-0800",
+      "to": "weather"
+    },
+    {
+      "from": "weather",
+      "to": "rates"
+    },
+    {
+      "from": "rates",
+      "to": "message"
+    },
+    {
+      "from": "message",
+      "to": "send"
+    }
+  ]
+}

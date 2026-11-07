@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:lang="${#locale.language}">
+<head>
+    <th:block th:fragment="headCommon(title)">
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title th:text="${title} + ' · MiniFlow'">MiniFlow</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap">
+        <link rel="stylesheet" th:href="@{/css/app.css}">
+        <link rel="icon" type="image/svg+xml" th:href="@{/img/favicon.svg}">
+        <link rel="icon" type="image/png" sizes="32x32" th:href="@{/img/favicon-32.png}">
+        <link rel="apple-touch-icon" th:href="@{/img/apple-touch-icon.png}">
+        <meta name="theme-color" content="#191e1e">
+    </th:block>
+</head>
+<body>
+
+<header th:fragment="topbar(active)" class="topbar">
+    <a class="brand" th:href="@{/dashboard}"><img class="logo-img" th:src="@{/img/logo.svg}" alt="" width="26" height="26"> MiniFlow</a>
+    <nav>
+        <a th:href="@{/dashboard}" th:classappend="${active == 'dashboard'} ? 'active'" th:text="#{app.nav.dashboard}">Dashboard</a>
+        <a th:href="@{/}" th:classappend="${active == 'workflows'} ? 'active'" th:text="#{app.nav.workflows}">Workflows</a>
+        <a th:href="@{/executions}" th:classappend="${active == 'executions'} ? 'active'" th:text="#{app.nav.executions}">Executions</a>
+        <a th:href="@{/variables}" th:classappend="${active == 'variables'} ? 'active'" th:text="#{app.nav.variables}">Variables</a>
+        <a th:href="@{/credentials}" th:classappend="${active == 'credentials'} ? 'active'" th:text="#{app.nav.credentials}">Kimlik bilgileri</a>
+    </nav>
+    <span class="spacer"></span>
+    <div class="lang" th:attr="aria-label=#{app.lang.switch}" role="group">
+        <a href="?lang=tr" th:classappend="${#locale.language == 'tr'} ? 'active'">TR</a>
+        <a href="?lang=en" th:classappend="${#locale.language != 'tr'} ? 'active'">EN</a>
+    </div>
+</header>
+
+<div th:fragment="executionTable(list)" class="card">
+    <div class="table-wrap">
+        <table class="table">
+            <thead>
+            <tr>
+                <th th:text="#{exec.col.time}">Zaman</th>
+                <th th:text="#{exec.col.workflow}">Workflow</th>
+                <th class="hide-sm" th:text="#{exec.col.mode}">Mod</th>
+                <th th:text="#{exec.col.status}">Durum</th>
+                <th class="num" th:text="#{exec.col.duration}">Duration</th>
+                <th></th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="ex : ${list}">
+                <td class="nowrap" th:text="${#temporals.format(ex.startedAt(), 'dd.MM.yyyy HH:mm:ss')}">-</td>
+                <td><a class="cell-title" th:href="@{/workflows/{id}/edit(id=${ex.workflowId()})}"
+                       th:text="${ex.workflowName()}">workflow</a></td>
+                <td class="hide-sm"><span class="tag" th:text="#{${'mode.' + ex.mode()}}">manual</span></td>
+                <td><span class="badge" th:classappend="${ex.status() == 'SUCCESS'} ? 'ok' : 'err'"
+                          th:text="#{${'status.' + ex.status()}}">-</span></td>
+                <td class="num" th:text="${ex.durationMs()} + ' ms'">-</td>
+                <td class="actions"><a class="link-arrow" th:href="@{/executions/{id}(id=${ex.id()})}"
+                                       th:text="#{common.details}">Detay →</a></td>
+            </tr>
+            <tr th:if="${#lists.isEmpty(list)}">
+                <td colspan="6" class="empty" th:text="#{exec.empty}">No executions yet.</td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<nav th:fragment="pagination(pg)" class="pager" th:if="${pg.total() > 0}" th:attr="aria-label=#{pager.label}">
+    <span class="pager-info" th:text="#{pager.showing(${pg.from()}, ${pg.to()}, ${pg.total()})}">1–10 / 42</span>
+    <div class="pager-links" th:if="${pg.totalPages() > 1}">
+        <a class="pager-btn" th:if="${pg.hasPrev()}" th:href="@{${pg.url(pg.page() - 1)}}"
+           th:title="#{pager.prev}" rel="prev">‹</a>
+        <span class="pager-btn disabled" th:unless="${pg.hasPrev()}" aria-hidden="true">‹</span>
+        <th:block th:each="n : ${pg.window()}">
+            <span class="pager-gap" th:if="${n == 0}">…</span>
+            <a class="pager-btn" th:if="${n > 0}" th:href="@{${pg.url(n)}}" th:text="${n}"
+               th:classappend="${n == pg.page()} ? 'current'"
+               th:attr="aria-current=${n == pg.page()} ? 'page' : null">1</a>
+        </th:block>
+        <a class="pager-btn" th:if="${pg.hasNext()}" th:href="@{${pg.url(pg.page() + 1)}}"
+           th:title="#{pager.next}" rel="next">›</a>
+        <span class="pager-btn disabled" th:unless="${pg.hasNext()}" aria-hidden="true">›</span>
+    </div>
+    <label class="pager-size">
+        <span th:text="#{pager.perPage}">Per page</span>
+        <select onchange="window.location = this.value">
+            <option th:each="s : ${pg.sizes()}" th:value="@{${pg.sizeUrl(s)}}"
+                    th:text="${s}" th:selected="${s == pg.size()}">10</option>
+        </select>
+    </label>
+</nav>
+
+<script th:fragment="confirmScript">
+    document.querySelectorAll('form[data-confirm]').forEach(function (form) {
+        form.addEventListener('submit', function (e) {
+            if (!window.confirm(form.getAttribute('data-confirm'))) e.preventDefault();
+        });
+    });
+</script>
+
+</body>
+</html>

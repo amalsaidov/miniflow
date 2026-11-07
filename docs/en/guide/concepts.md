@@ -1,0 +1,75 @@
+# Core concepts
+
+## Workflow JSON
+```json
+{
+  "id": "order-flow",
+  "name": "Order processing",
+  "active": true,
+  "nodes": [
+    { "id": "start", "type": "trigger", "params": { "path": "orders", "sample": { "orderId": 42, "amount": 1500 } } },
+    { "id": "check", "type": "if",      "params": { "condition": "{{ input.amount > 1000 }}" } },
+    { "id": "big",   "type": "log",     "params": { "message": "LARGE order {{ input.orderId }}" } },
+    { "id": "small", "type": "log",     "params": { "message": "Regular order {{ input.orderId }}" } }
+  ],
+  "connections": [
+    { "from": "start", "to": "check" },
+    { "from": "check", "to": "big",   "branch": "true" },
+    { "from": "check", "to": "small", "branch": "false" }
+  ]
+}
+```
+- `id`: lowercase letters, digits and hyphens. It is the key used for import/export and the URL.
+- Each node gets the **previous node's output** as `input`. Every node's output is also available later as `nodes['node-id']`.
+- Nodes run breadth-first from the trigger. If a node fails, its branch stops and the execution is marked **ERROR**.
+
+## Triggers
+The first node (`type: "trigger"`) decides how the workflow starts:
+
+| Trigger | Trigger params | Runs when | Data in `trigger` / `input` |
+|---|---|---|---|
+| Manual | — | *Test run* in the editor or `POST /api/workflows/{id}/run` | Test data / request body |
+| Webhook | `"path": "orders"` | `POST` or `GET /webhook/orders` | JSON body, form fields or query params, plus `_headers` (lower-case) |
+| Schedule | `"cron": "*/10 * * * *"` | On the cron schedule | `{}` |
+| Queue | `"listen": { … }` | Each message from RabbitMQ / Kafka / Redis | `{ "body": <message>, … }` |
+
+**Active switch:** webhooks, schedules and queue listeners run only for **active** workflows.
+Imported examples come in inactive — test them, then activate.
+
+**Webhook response:** the output of the last node that ran, e.g.
+`{ "executionId": "…", "status": "SUCCESS", "data": { "ok": true } }`. On failure: HTTP 500 and `"data": {"error": "…"}`.
+A JSON array body is wrapped as `{ "items": [...] }`.
+
+**Signed webhooks (GitHub style):** add `"signatureSecretVar": "githubWebhookSecret"` to the trigger. If that variable is set,
+the `X-Hub-Signature-256` HMAC is verified and invalid requests get 401. If it isn't set, a warning is logged and the call is accepted.
+
+**Cron** uses 5 fields (minute hour day month weekday) in the server's time zone; 6 fields means seconds first.
+
+| Expression | Meaning |
+|---|---|
+| `*/5 * * * *` | every 5 minutes |
+| `0 9 * * *` | every day 09:00 |
+| `45 7 * * MON-FRI` | weekdays 07:45 |
+| `0 0 1 * *` | 1st of every month, midnight |
+
+**Queue listeners**:
+```json
+"listen": { "type": "rabbitmq", "credential": "rabbitmq", "queue": "orders" }
+"listen": { "type": "kafka", "credential": "kafka", "topic": "payments.events", "group": "my-group", "fromBeginning": false }
+"listen": { "type": "redis", "credential": "redis", "list": "export-jobs" }      // work queue (BLPOP), one consumer per message
+"listen": { "type": "redis", "credential": "redis", "channel": "events" }        // pub/sub, every listener gets it
+```
+- The message arrives as `trigger.body` (parsed if JSON): `{{ trigger.body.orderNo }}`.
+- RabbitMQ: the queue is created (durable) if missing; messages are acknowledged even if the workflow fails (no poison-message loops — the error is visible on the Executions page).
+- Kafka: default group `miniflow-<workflow id>`, starts from new messages unless `fromBeginning: true`.
+- The Workflows list shows a "⇄" badge, or a red **not connected** badge (hover for the reason).
+- After changing a credential, toggle the workflow inactive/active to reconnect.
+
+## Dedupe ("Is it new?")
+Scheduled workflows see the same data again and again. `dedupe` remembers a key in the `seen_keys` table: first time → **new**, after that → **seen**.
+Keys like `{{ input.id }}`, `order-{{ input.orderNo }}` or `incident-{{ now.substring(0, 13) }}` (= once per hour) are common.
+Manual test runs only check, they never record.
+
+## Execution history
+Every run is stored with each node's status, branch, output, error and duration. Long text values (> 20,000 characters, e.g. file contents) are truncated in history.
+`Authorization` and `Cookie` headers are never stored. History is deleted after `execution-retention-days`.

@@ -1,0 +1,53 @@
+name: Bug report
+description: Something does not work as expected
+title: "[Bug] [Module] "
+labels: ["bug"]
+body:
+  - type: checkboxes
+    attributes:
+      label: Search before asking
+      options:
+        - label: I searched the existing issues and found no similar report.
+          required: true
+  - type: textarea
+    attributes:
+      label: What happened
+      description: Describe the problem and include the error from the Executions page or the log.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: What you expected to happen
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: How to reproduce
+      description: Steps and, if possible, the workflow JSON. Remove secrets and personal data.
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: MiniFlow version
+      placeholder: e.g. 0.1.0 or commit sha
+    validations:
+      required: true
+  - type: dropdown
+    attributes:
+      label: How do you run MiniFlow?
+      options:
+        - mvn spring-boot:run / IDE
+        - jar
+        - Docker Compose
+        - Other
+  - type: dropdown
+    attributes:
+      label: Database
+      options:
+        - H2 (default)
+        - PostgreSQL
+  - type: checkboxes
+    attributes:
+      label: Are you willing to submit a pull request?
+      options:
+        - label: Yes, I am willing to submit a PR.

@@ -1,0 +1,75 @@
+{
+  "id": "blog-to-slack",
+  "name": "New blog posts to Slack (RSS)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "every-2-hours",
+      "type": "trigger",
+      "x": 40,
+      "y": 200,
+      "params": {
+        "cron": "0 */2 * * *",
+        "sample": {}
+      }
+    },
+    {
+      "id": "blog",
+      "type": "rss",
+      "x": 280,
+      "y": 200,
+      "params": {
+        "url": "https://spring.io/blog.atom",
+        "limit": 5
+      }
+    },
+    {
+      "id": "has-post",
+      "type": "if",
+      "x": 520,
+      "y": 200,
+      "params": {
+        "condition": "{{ input.latest != null }}"
+      }
+    },
+    {
+      "id": "is-new",
+      "type": "dedupe",
+      "x": 760,
+      "y": 140,
+      "params": {
+        "key": "{{ input.latest.link }}"
+      }
+    },
+    {
+      "id": "slack",
+      "type": "slack",
+      "x": 1000,
+      "y": 80,
+      "params": {
+        "credential": "slack",
+        "text": "📝 {{ input.title }}: {{ input.latest.title }}\n{{ input.latest.link }}"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "every-2-hours",
+      "to": "blog"
+    },
+    {
+      "from": "blog",
+      "to": "has-post"
+    },
+    {
+      "from": "has-post",
+      "to": "is-new",
+      "branch": "true"
+    },
+    {
+      "from": "is-new",
+      "to": "slack",
+      "branch": "new"
+    }
+  ]
+}

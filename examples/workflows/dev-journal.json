@@ -1,0 +1,144 @@
+{
+  "id": "dev-journal",
+  "name": "Dev journal: today's commits + PRs → AI summary → database (weekdays 18:30)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "weekdays-1830",
+      "type": "trigger",
+      "x": 40,
+      "y": 200,
+      "params": {
+        "cron": "30 18 * * MON-FRI",
+        "sample": {}
+      }
+    },
+    {
+      "id": "commits",
+      "type": "http",
+      "x": 280,
+      "y": 200,
+      "params": {
+        "method": "GET",
+        "headers": {
+          "Accept": "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          "User-Agent": "MiniFlow"
+        },
+        "credential": "github-http",
+        "url": "https://api.github.com/search/commits?q=author:{{ vars.githubUser }}+author-date:{{ today }}&sort=author-date&order=asc&per_page=100"
+      }
+    },
+    {
+      "id": "prs",
+      "type": "http",
+      "x": 520,
+      "y": 200,
+      "params": {
+        "method": "GET",
+        "headers": {
+          "Accept": "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          "User-Agent": "MiniFlow"
+        },
+        "credential": "github-http",
+        "url": "https://api.github.com/search/issues?q=author:{{ vars.githubUser }}+type:pr+updated:{{ today }}&per_page=50"
+      }
+    },
+    {
+      "id": "collect",
+      "type": "set",
+      "x": 760,
+      "y": 200,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "commitCount": "{{ commits.body.total_count }}",
+          "prCount": "{{ prs.body.total_count }}",
+          "total": "{{ commits.body.total_count + prs.body.total_count }}",
+          "commitLines": "{{ join(commits.body.items.!['- ' + repository.full_name + ': ' + commit.message.split('\\n')[0]], '\n') }}",
+          "prLines": "{{ join(prs.body.items.!['- ' + repository_url.replace('https://api.github.com/repos/', '') + ': ' + title + ' (' + state + ')'], '\n') }}"
+        }
+      }
+    },
+    {
+      "id": "any-activity",
+      "type": "if",
+      "x": 1000,
+      "y": 200,
+      "params": {
+        "condition": "{{ input.total > 0 }}"
+      }
+    },
+    {
+      "id": "summarize",
+      "type": "ai",
+      "x": 1240,
+      "y": 120,
+      "params": {
+        "credential": "gemini",
+        "maxTokens": 400,
+        "temperature": 0.3,
+        "system": "You turn a developer's commits and pull requests into a stand-up note. Write exactly 3 short bullet points starting with \"• \": what was done, what is in progress, anything blocked or worth mentioning. Group related commits, skip trivial ones (typos, formatting). Plain text, no headings. Language: {{ default(vars.journalLanguage, 'English') }}.",
+        "prompt": "Date: {{ today }}\n\nCommits ({{ input.commitCount }}):\n{{ input.commitLines }}\n\nPull requests ({{ input.prCount }}):\n{{ input.prLines }}"
+      }
+    },
+    {
+      "id": "save",
+      "type": "database",
+      "x": 1480,
+      "y": 120,
+      "params": {
+        "credential": "miniflow-db",
+        "query": "INSERT INTO dev_journal (day, summary, commits, pull_requests, created_at) VALUES (CAST(:day AS DATE), :summary, :commits, :prs, CURRENT_TIMESTAMP) ON CONFLICT (day) DO UPDATE SET summary = EXCLUDED.summary, commits = EXCLUDED.commits, pull_requests = EXCLUDED.pull_requests, created_at = EXCLUDED.created_at",
+        "params": {
+          "day": "{{ today }}",
+          "summary": "{{ input.text }}",
+          "commits": "{{ collect.commitCount }}",
+          "prs": "{{ collect.prCount }}"
+        }
+      }
+    },
+    {
+      "id": "quiet-day",
+      "type": "log",
+      "x": 1240,
+      "y": 300,
+      "params": {
+        "message": "No commits or pull requests today, nothing saved"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "weekdays-1830",
+      "to": "commits"
+    },
+    {
+      "from": "commits",
+      "to": "prs"
+    },
+    {
+      "from": "prs",
+      "to": "collect"
+    },
+    {
+      "from": "collect",
+      "to": "any-activity"
+    },
+    {
+      "from": "any-activity",
+      "to": "summarize",
+      "branch": "true"
+    },
+    {
+      "from": "any-activity",
+      "to": "quiet-day",
+      "branch": "false"
+    },
+    {
+      "from": "summarize",
+      "to": "save"
+    }
+  ]
+}

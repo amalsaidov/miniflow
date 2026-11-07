@@ -1,0 +1,112 @@
+{
+  "id": "release-watch-ai",
+  "name": "Dependency release watch: AI summary → Slack + GitHub upgrade issue",
+  "active": false,
+  "nodes": [
+    {
+      "id": "daily-0900",
+      "type": "trigger",
+      "x": 40,
+      "y": 200,
+      "params": {
+        "cron": "0 9 * * *",
+        "sample": {}
+      }
+    },
+    {
+      "id": "releases",
+      "type": "rss",
+      "x": 280,
+      "y": 200,
+      "params": {
+        "url": "https://github.com/spring-projects/spring-boot/releases.atom",
+        "limit": 1
+      }
+    },
+    {
+      "id": "has-release",
+      "type": "if",
+      "x": 520,
+      "y": 200,
+      "params": {
+        "condition": "{{ input.latest != null }}"
+      }
+    },
+    {
+      "id": "is-new-release",
+      "type": "dedupe",
+      "x": 760,
+      "y": 140,
+      "params": {
+        "key": "{{ input.latest.id }}"
+      }
+    },
+    {
+      "id": "summarize",
+      "type": "ai",
+      "x": 1000,
+      "y": 140,
+      "params": {
+        "credential": "openai",
+        "maxTokens": 300,
+        "system": "You write short release digests for a Java backend team. Use 3 bullet points, mention breaking changes first.",
+        "prompt": "Release {{ input.latest.title }}:\n{{ input.latest.summary }}"
+      }
+    },
+    {
+      "id": "announce",
+      "type": "slack",
+      "x": 1240,
+      "y": 60,
+      "params": {
+        "credential": "slack",
+        "text": "🏷️ Spring Boot {{ nodes['releases'].latest.title }} is out\n{{ input.text }}\n{{ nodes['releases'].latest.link }}"
+      }
+    },
+    {
+      "id": "upgrade-task",
+      "type": "github",
+      "x": 1480,
+      "y": 60,
+      "params": {
+        "credential": "github",
+        "operation": "createIssue",
+        "repo": "{{ vars.githubRepo }}",
+        "title": "Upgrade Spring Boot to {{ nodes['releases'].latest.title }}",
+        "body": "{{ nodes['summarize'].text }}\n\nRelease notes: {{ nodes['releases'].latest.link }}",
+        "labels": [
+          "dependencies",
+          "spring-boot"
+        ]
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "daily-0900",
+      "to": "releases"
+    },
+    {
+      "from": "releases",
+      "to": "has-release"
+    },
+    {
+      "from": "has-release",
+      "to": "is-new-release",
+      "branch": "true"
+    },
+    {
+      "from": "is-new-release",
+      "to": "summarize",
+      "branch": "new"
+    },
+    {
+      "from": "summarize",
+      "to": "announce"
+    },
+    {
+      "from": "announce",
+      "to": "upgrade-task"
+    }
+  ]
+}

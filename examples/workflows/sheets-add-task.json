@@ -1,0 +1,98 @@
+{
+  "id": "sheets-add-task",
+  "name": "Google Sheets: add a task row (webhook)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "new-task",
+      "type": "trigger",
+      "x": 40,
+      "y": 200,
+      "params": {
+        "path": "tasks",
+        "sample": {
+          "task": "Prepare Q4 report",
+          "owner": "Alice",
+          "due": "2026-11-20"
+        }
+      }
+    },
+    {
+      "id": "is-valid",
+      "type": "if",
+      "x": 280,
+      "y": 200,
+      "params": {
+        "condition": "{{ input.task != null and !input.task.isBlank() }}"
+      }
+    },
+    {
+      "id": "append-row",
+      "type": "googleSheets",
+      "x": 520,
+      "y": 120,
+      "params": {
+        "credential": "google",
+        "operation": "append",
+        "spreadsheetId": "{{ vars.sheetId }}",
+        "range": "Tasks",
+        "values": [
+          [
+            "{{ today }}",
+            "{{ input.task.trim() }}",
+            "{{ input.owner == null ? 'unassigned' : input.owner }}",
+            "{{ input.due }}",
+            "open"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "reply",
+      "type": "set",
+      "x": 760,
+      "y": 120,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "ok": true,
+          "added": "{{ trigger.task }}",
+          "range": "{{ input.updatedRange }}"
+        }
+      }
+    },
+    {
+      "id": "invalid",
+      "type": "set",
+      "x": 520,
+      "y": 300,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "ok": false,
+          "error": "task is required"
+        }
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "new-task",
+      "to": "is-valid"
+    },
+    {
+      "from": "is-valid",
+      "to": "append-row",
+      "branch": "true"
+    },
+    {
+      "from": "is-valid",
+      "to": "invalid",
+      "branch": "false"
+    },
+    {
+      "from": "append-row",
+      "to": "reply"
+    }
+  ]
+}

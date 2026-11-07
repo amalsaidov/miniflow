@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:lang="${#locale.language}">
+<head>
+    <th:block th:replace="~{fragments :: headCommon(${workflow.name()})}"></th:block>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/drawflow@0.0.60/dist/drawflow.min.css">
+</head>
+<body class="editor-page">
+<header th:replace="~{fragments :: topbar('workflows')}"></header>
+
+<div class="editor-bar">
+    <input id="wf-name" class="name-input" th:value="${workflow.name()}" th:attr="aria-label=#{editor.name.aria}">
+    <code class="muted" th:text="${workflow.id()}">id</code>
+    <span id="status" class="status"></span>
+    <span class="spacer"></span>
+    <label class="active-toggle" th:title="#{editor.active.title}">
+        <input type="checkbox" id="wf-active" th:checked="${workflow.active()}"> <span th:text="#{editor.active}">Aktif</span>
+    </label>
+    <a class="btn" th:href="@{/executions(workflow=${workflow.id()})}" th:text="#{common.history}">History</a>
+    <button id="btn-save" class="btn" type="button" title="Ctrl+S" th:text="#{common.save}">Kaydet</button>
+    <button id="btn-run" class="btn primary" type="button" th:text="#{editor.run}">▶ Test</button>
+</div>
+
+<div class="editor">
+    <aside class="palette">
+        <h3 th:text="#{editor.nodes}">Nodes</h3>
+        <button th:each="t : ${nodeTypes}" type="button" class="palette-item"
+                th:classappend="'type-' + ${t.type()}" th:attr="data-type=${t.type()}">
+            <strong th:text="${t.label()}">Node</strong>
+            <small th:text="${t.description()}">description</small>
+        </button>
+        <p class="hint" th:utext="#{editor.hint}">Click to add to the canvas.</p>
+    </aside>
+
+    <div id="drawflow"></div>
+
+    <aside class="inspector">
+        <section id="empty-panel">
+            <h3 th:text="#{editor.node}">Node</h3>
+            <p class="muted" th:text="#{editor.selectNode}">Select a node on the canvas to edit it.</p>
+        </section>
+
+        <section id="node-panel" hidden>
+            <h3 id="np-type">Node</h3>
+            <p id="np-desc" class="muted small"></p>
+            <label><span th:text="#{editor.nodeId}">Node ID</span>
+                <input id="np-id" autocomplete="off">
+            </label>
+            <div id="np-tabs" class="np-tabs" role="tablist" hidden>
+                <button type="button" class="np-tab active" data-tab="form" role="tab" th:text="#{editor.tab.form}">Form</button>
+                <button type="button" class="np-tab" data-tab="json" role="tab" th:text="#{editor.tab.json}">JSON</button>
+            </div>
+            <div id="np-form" class="np-form" hidden></div>
+            <label id="np-json-wrap"><span th:text="#{editor.params}">Parametreler (JSON)</span>
+                <textarea id="np-params" rows="10" spellcheck="false"></textarea>
+            </label>
+            <div id="np-preview" class="preview" hidden>
+                <div class="preview-head"><strong th:text="#{js.preview.title}">Preview</strong>
+                    <span class="small muted" th:text="#{js.preview.note}">with the available data, nothing is sent</span></div>
+                <dl id="np-preview-list"></dl>
+            </div>
+            <div id="np-data" class="data-panel">
+                <div class="data-head">
+                    <strong th:text="#{js.data.title}">Available data</strong>
+                    <span id="np-data-source" class="small muted"></span>
+                </div>
+                <p class="small muted" th:text="#{js.data.hint}">Click a field to insert it at the cursor in the parameters.</p>
+                <div id="np-data-tree" class="data-tree"></div>
+            </div>
+            <p id="np-cred" class="small cred-hint" hidden></p>
+            <p class="small muted"><span th:text="#{editor.expressions}">Expressions:</span>
+                <code>{{ input.x }}</code>, <code>{{ trigger.x }}</code>,
+                <code>{{ ping.status }}</code>, <code>{{ vars.x }}</code>,
+                <code>{{ join(list, ', ') }}</code></p>
+            <p id="np-error" class="flash error" hidden></p>
+            <div class="row">
+                <button id="np-apply" class="btn primary" type="button" th:text="#{editor.apply}">Uygula</button>
+                <button id="np-delete" class="btn danger" type="button" th:text="#{editor.deleteNode}">Delete node</button>
+            </div>
+            <div id="np-output-wrap" hidden>
+                <h4 th:text="#{editor.lastOutput}">Last run output</h4>
+                <pre id="np-output" class="json"></pre>
+            </div>
+        </section>
+
+        <section>
+            <h3 th:text="#{editor.testData}">Test verisi</h3>
+            <p class="small muted" th:text="#{editor.testDataHint}">"Test run" sends this JSON to the trigger.</p>
+            <textarea id="test-data" rows="7" spellcheck="false"></textarea>
+        </section>
+
+        <section id="run-panel" hidden>
+            <h3><span th:text="#{editor.lastTest}">Son test</span> <span id="run-badge" class="badge"></span></h3>
+            <ol id="run-steps" class="run-steps"></ol>
+            <a id="run-link" href="#" th:text="#{editor.runLink}">Execution details →</a>
+        </section>
+    </aside>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/drawflow@0.0.60/dist/drawflow.min.js"></script>
+<script th:inline="javascript">
+    window.MINIFLOW = {
+        workflow: /*[[${workflow}]]*/ {},
+        nodeTypes: /*[[${nodeTypes}]]*/ [],
+        credentials: /*[[${credentials}]]*/ [],
+        vars: /*[[${vars}]]*/ {},
+        base: /*[[@{/}]]*/ '/',
+        i18n: {
+            unsaved: /*[[#{js.unsaved}]]*/ '',
+            saved: /*[[#{js.saved}]]*/ '',
+            saveFailed: /*[[#{js.saveFailed}]]*/ '',
+            testDataInvalid: /*[[#{js.testDataInvalid}]]*/ '',
+            running: /*[[#{js.running}]]*/ '',
+            runFailed: /*[[#{js.runFailed}]]*/ '',
+            testOk: /*[[#{js.testOk}]]*/ '',
+            testFailed: /*[[#{js.testFailed}]]*/ '',
+            success: /*[[#{js.success}]]*/ '',
+            error: /*[[#{js.error}]]*/ '',
+            idInvalid: /*[[#{js.idInvalid}]]*/ '',
+            idTaken: /*[[#{js.idTaken}]]*/ '',
+            paramsInvalid: /*[[#{js.paramsInvalid}]]*/ '',
+            paramsNotObject: /*[[#{js.paramsNotObject}]]*/ '',
+            errorPrefix: /*[[#{js.errorPrefix}]]*/ '',
+            active: /*[[#{js.active}]]*/ '',
+            inactive: /*[[#{js.inactive}]]*/ '',
+            credAvailable: /*[[#{js.credAvailable}]]*/ '',
+            credNone: /*[[#{js.credNone}]]*/ '',
+            credManage: /*[[#{js.credManage}]]*/ '',
+            credType: /*[[#{js.credType}]]*/ '',
+            dataFromTest: /*[[#{js.data.fromTest}]]*/ '',
+            dataFromHistory: /*[[#{js.data.fromHistory}]]*/ '',
+            dataFromSample: /*[[#{js.data.fromSample}]]*/ '',
+            dataNotRun: /*[[#{js.data.notRun}]]*/ '',
+            dataVars: /*[[#{js.data.vars}]]*/ '',
+            dataFunctions: /*[[#{js.data.functions}]]*/ '',
+            dataEmpty: /*[[#{js.data.empty}]]*/ '',
+            dataInput: /*[[#{js.data.input}]]*/ '',
+            dataCopied: /*[[#{js.data.copied}]]*/ '',
+            formAdd: /*[[#{editor.form.add}]]*/ '',
+            formKeyPh: /*[[#{editor.form.keyPh}]]*/ '',
+            formValuePh: /*[[#{editor.form.valuePh}]]*/ '',
+            formExtra: /*[[#{editor.form.extra}]]*/ '',
+            formNone: /*[[#{editor.form.none}]]*/ '',
+            formJsonInvalid: /*[[#{editor.form.jsonInvalid}]]*/ '',
+            blocks_add: /*[[#{editor.blocks.add}]]*/ '',
+            blocks_header: /*[[#{editor.blocks.header}]]*/ '',
+            blocks_section: /*[[#{editor.blocks.section}]]*/ '',
+            blocks_fields: /*[[#{editor.blocks.fields}]]*/ '',
+            blocks_divider: /*[[#{editor.blocks.divider}]]*/ '',
+            blocks_context: /*[[#{editor.blocks.context}]]*/ '',
+            blocks_button: /*[[#{editor.blocks.button}]]*/ '',
+            blocks_image: /*[[#{editor.blocks.image}]]*/ '',
+            blocks_fieldLabel: /*[[#{editor.blocks.fieldLabel}]]*/ '',
+            blocks_fieldValue: /*[[#{editor.blocks.fieldValue}]]*/ '',
+            blocks_addField: /*[[#{editor.blocks.addField}]]*/ '',
+            blocks_text: /*[[#{editor.blocks.text}]]*/ '',
+            blocks_url: /*[[#{editor.blocks.url}]]*/ '',
+            blocks_alt: /*[[#{editor.blocks.alt}]]*/ '',
+            blocks_unsupported: /*[[#{editor.blocks.unsupported}]]*/ '',
+            blocks_preset: /*[[#{editor.blocks.preset}]]*/ '',
+            blocks_up: /*[[#{editor.blocks.up}]]*/ '',
+            blocks_down: /*[[#{editor.blocks.down}]]*/ '',
+            blocks_remove: /*[[#{editor.blocks.remove}]]*/ '',
+            blocks_empty: /*[[#{editor.blocks.empty}]]*/ ''
+        }
+    };
+</script>
+<script th:src="@{/js/editor.js}"></script>
+</body>
+</html>

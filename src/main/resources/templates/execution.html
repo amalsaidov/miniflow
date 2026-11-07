@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:lang="${#locale.language}">
+<head>
+    <th:block th:replace="~{fragments :: headCommon(#{exec.title})}"></th:block>
+</head>
+<body>
+<header th:replace="~{fragments :: topbar('executions')}"></header>
+
+<main class="page">
+    <div class="page-head">
+        <div>
+            <a class="muted" th:href="@{/executions}" th:text="#{exec.back}">← Executions</a>
+            <h1 th:text="${ex.workflowName()}">Workflow</h1>
+        </div>
+        <a class="btn" th:href="@{/workflows/{id}/edit(id=${ex.workflowId()})}" th:text="#{exec.openEditor}">Open in editor</a>
+    </div>
+
+    <div class="meta">
+        <span class="badge" th:classappend="${ex.status() == 'SUCCESS'} ? 'ok' : 'err'"
+              th:text="#{${'status.' + ex.status()}}"></span>
+        <span th:text="${#temporals.format(ex.startedAt(), 'dd.MM.yyyy HH:mm:ss')}"></span>
+        <span th:text="${ex.durationMs()} + ' ms'"></span>
+        <span class="tag" th:text="#{${'mode.' + ex.mode()}}"></span>
+        <code class="muted" th:text="${ex.id()}"></code>
+    </div>
+
+    <h2 th:text="#{exec.trigger}">Tetikleyici verisi</h2>
+    <pre class="json" th:text="${@json.pretty(ex.trigger())}">{}</pre>
+
+    <h2 th:text="#{exec.steps}">Steps</h2>
+    <div class="steps">
+        <details th:each="step, it : ${ex.steps()}" class="step card"
+                 th:classappend="${step.status() == 'SUCCESS'} ? 'ok' : 'err'" th:open="${it.last}">
+            <summary>
+                <span class="step-no" th:text="${it.count}">1</span>
+                <strong th:text="${step.nodeId()}">node</strong>
+                <span class="tag" th:text="${step.type()}">type</span>
+                <span class="tag branch" th:if="${step.branch() != null and step.branch() != 'main'}"
+                      th:text="'→ ' + ${step.branch()}"></span>
+                <span class="spacer"></span>
+                <span class="muted" th:text="${step.durationMs()} + ' ms'"></span>
+            </summary>
+            <p class="flash error" th:if="${step.error() != null}" th:text="${step.error()}"></p>
+            <pre class="json" th:if="${step.output() != null}" th:text="${@json.pretty(step.output())}"></pre>
+        </details>
+    </div>
+</main>
+</body>
+</html>

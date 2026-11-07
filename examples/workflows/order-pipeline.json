@@ -1,0 +1,239 @@
+{
+  "id": "order-pipeline",
+  "name": "E-commerce order pipeline",
+  "active": false,
+  "nodes": [
+    {
+      "id": "new-order",
+      "type": "trigger",
+      "x": 40,
+      "y": 260,
+      "params": {
+        "path": "shop-orders",
+        "sample": {
+          "orderNo": "ORD-1001",
+          "currency": "EUR",
+          "total": 1250.0,
+          "paymentStatus": "paid",
+          "customer": {
+            "name": "Alice Smith",
+            "email": "Alice@Example.com"
+          },
+          "items": [
+            {
+              "sku": "HP-200",
+              "name": "Headphones",
+              "qty": 2,
+              "price": 450
+            },
+            {
+              "sku": "CB-10",
+              "name": "USB-C cable",
+              "qty": 1,
+              "price": 350
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "is-valid",
+      "type": "if",
+      "x": 260,
+      "y": 260,
+      "params": {
+        "condition": "{{ input.orderNo != null and input.customer?.email != null and input.customer.email.contains('@') and input.total != null and input.total > 0 and input.paymentStatus == 'paid' }}"
+      }
+    },
+    {
+      "id": "normalize",
+      "type": "set",
+      "x": 480,
+      "y": 160,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "orderNo": "{{ input.orderNo.trim() }}",
+          "name": "{{ input.customer.name?.trim() }}",
+          "email": "{{ input.customer.email.trim().toLowerCase() }}",
+          "total": "{{ input.total }}",
+          "currency": "{{ input.currency == null ? 'EUR' : input.currency.toUpperCase() }}",
+          "itemCount": "{{ input.items == null ? 0 : input.items.size() }}"
+        }
+      }
+    },
+    {
+      "id": "already-processed",
+      "type": "dedupe",
+      "x": 700,
+      "y": 160,
+      "params": {
+        "key": "order-{{ input.orderNo }}"
+      }
+    },
+    {
+      "id": "save-order",
+      "type": "database",
+      "x": 920,
+      "y": 100,
+      "params": {
+        "credential": "shop-db",
+        "query": "INSERT INTO shop_orders (order_no, customer_name, customer_email, total, currency, status) VALUES (:orderNo, :name, :email, :total, :currency, 'NEW')",
+        "params": {
+          "orderNo": "{{ input.orderNo }}",
+          "name": "{{ input.name }}",
+          "email": "{{ input.email }}",
+          "total": "{{ input.total }}",
+          "currency": "{{ input.currency }}"
+        }
+      }
+    },
+    {
+      "id": "send-to-warehouse",
+      "type": "rabbitmq",
+      "x": 1140,
+      "y": 100,
+      "params": {
+        "credential": "rabbitmq",
+        "routingKey": "fulfillment.orders",
+        "declareQueue": true,
+        "message": {
+          "orderNo": "{{ nodes['normalize'].orderNo }}",
+          "items": "{{ trigger.items }}",
+          "shipTo": {
+            "name": "{{ nodes['normalize'].name }}",
+            "email": "{{ nodes['normalize'].email }}"
+          }
+        }
+      }
+    },
+    {
+      "id": "is-large-order",
+      "type": "if",
+      "x": 1360,
+      "y": 100,
+      "params": {
+        "condition": "{{ nodes['normalize'].total >= 1000 }}"
+      }
+    },
+    {
+      "id": "notify-sales",
+      "type": "slack",
+      "x": 1580,
+      "y": 20,
+      "params": {
+        "credential": "slack",
+        "text": "💰 Large order {{ nodes['normalize'].orderNo }}: {{ nodes['normalize'].total }} {{ nodes['normalize'].currency }} from {{ nodes['normalize'].name }} ({{ nodes['normalize'].itemCount }} items)"
+      }
+    },
+    {
+      "id": "confirm-to-customer",
+      "type": "email",
+      "x": 1800,
+      "y": 100,
+      "params": {
+        "credential": "smtp",
+        "to": "{{ nodes['normalize'].email }}",
+        "subject": "Your order {{ nodes['normalize'].orderNo }} is confirmed",
+        "text": "Hi {{ nodes['normalize'].name }},\n\nThanks for your order {{ nodes['normalize'].orderNo }} ({{ nodes['normalize'].total }} {{ nodes['normalize'].currency }}). We will email you again when it ships.\n\nThe Shop team"
+      }
+    },
+    {
+      "id": "accepted",
+      "type": "set",
+      "x": 2020,
+      "y": 100,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "ok": true,
+          "orderNo": "{{ nodes['normalize'].orderNo }}",
+          "status": "accepted"
+        }
+      }
+    },
+    {
+      "id": "duplicate",
+      "type": "set",
+      "x": 920,
+      "y": 280,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "ok": true,
+          "orderNo": "{{ input.orderNo }}",
+          "status": "duplicate-ignored"
+        }
+      }
+    },
+    {
+      "id": "rejected",
+      "type": "set",
+      "x": 480,
+      "y": 400,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "ok": false,
+          "error": "orderNo, customer.email, total > 0 and paymentStatus = paid are required"
+        }
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "new-order",
+      "to": "is-valid"
+    },
+    {
+      "from": "is-valid",
+      "to": "normalize",
+      "branch": "true"
+    },
+    {
+      "from": "is-valid",
+      "to": "rejected",
+      "branch": "false"
+    },
+    {
+      "from": "normalize",
+      "to": "already-processed"
+    },
+    {
+      "from": "already-processed",
+      "to": "save-order",
+      "branch": "new"
+    },
+    {
+      "from": "already-processed",
+      "to": "duplicate",
+      "branch": "seen"
+    },
+    {
+      "from": "save-order",
+      "to": "send-to-warehouse"
+    },
+    {
+      "from": "send-to-warehouse",
+      "to": "is-large-order"
+    },
+    {
+      "from": "is-large-order",
+      "to": "notify-sales",
+      "branch": "true"
+    },
+    {
+      "from": "is-large-order",
+      "to": "confirm-to-customer",
+      "branch": "false"
+    },
+    {
+      "from": "notify-sales",
+      "to": "confirm-to-customer"
+    },
+    {
+      "from": "confirm-to-customer",
+      "to": "accepted"
+    }
+  ]
+}

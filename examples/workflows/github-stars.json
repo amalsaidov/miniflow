@@ -1,0 +1,120 @@
+{
+  "id": "github-stars",
+  "name": "GitHub stars & forks tracker (daily 09:00)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "daily-0900",
+      "type": "trigger",
+      "x": 40,
+      "y": 200,
+      "params": {
+        "cron": "0 9 * * *",
+        "sample": {}
+      }
+    },
+    {
+      "id": "repo",
+      "type": "http",
+      "x": 280,
+      "y": 200,
+      "params": {
+        "method": "GET",
+        "headers": {
+          "Accept": "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          "User-Agent": "MiniFlow",
+          "Authorization": "{{ vars.githubToken == null ? null : 'Bearer ' + vars.githubToken }}"
+        },
+        "url": "https://api.github.com/repos/{{ vars.githubRepo }}"
+      }
+    },
+    {
+      "id": "summary",
+      "type": "set",
+      "x": 520,
+      "y": 200,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "repo": "{{ input.body.full_name }}",
+          "stars": "{{ input.body.stargazers_count }}",
+          "forks": "{{ input.body.forks_count }}",
+          "issues": "{{ input.body.open_issues_count }}",
+          "url": "{{ input.body.html_url }}"
+        }
+      }
+    },
+    {
+      "id": "changed",
+      "type": "dedupe",
+      "x": 760,
+      "y": 200,
+      "params": {
+        "key": "{{ input.stars }}-{{ input.forks }}"
+      }
+    },
+    {
+      "id": "message",
+      "type": "set",
+      "x": 1000,
+      "y": 120,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "text": "⭐ {{ input.repo }}: {{ input.stars }} stars, {{ input.forks }} forks, {{ input.issues }} open issues\n{{ input.url }}"
+        }
+      }
+    },
+    {
+      "id": "send",
+      "type": "http",
+      "x": 1240,
+      "y": 120,
+      "params": {
+        "method": "POST",
+        "url": "{{ vars.alertWebhook }}",
+        "body": {
+          "text": "{{ input.text }}"
+        }
+      }
+    },
+    {
+      "id": "unchanged",
+      "type": "log",
+      "x": 1000,
+      "y": 300,
+      "params": {
+        "message": "{{ input.repo }}: no change ({{ input.stars }}★)"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "daily-0900",
+      "to": "repo"
+    },
+    {
+      "from": "repo",
+      "to": "summary"
+    },
+    {
+      "from": "summary",
+      "to": "changed"
+    },
+    {
+      "from": "changed",
+      "to": "message",
+      "branch": "new"
+    },
+    {
+      "from": "changed",
+      "to": "unchanged",
+      "branch": "seen"
+    },
+    {
+      "from": "message",
+      "to": "send"
+    }
+  ]
+}

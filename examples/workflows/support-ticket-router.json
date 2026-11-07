@@ -1,0 +1,177 @@
+{
+  "id": "support-ticket-router",
+  "name": "Support ticket router (webhook)",
+  "active": true,
+  "nodes": [
+    {
+      "id": "ticket",
+      "type": "trigger",
+      "x": 40,
+      "y": 220,
+      "params": {
+        "path": "ticket",
+        "sample": {
+          "email": "alice@example.com",
+          "subject": "I was charged twice",
+          "category": "billing",
+          "priority": "normal",
+          "message": "My October invoice was charged twice."
+        }
+      }
+    },
+    {
+      "id": "is-valid",
+      "type": "if",
+      "x": 280,
+      "y": 220,
+      "params": {
+        "condition": "{{ input.email != null and input.email.contains('@') and input.subject != null }}"
+      }
+    },
+    {
+      "id": "assign-number",
+      "type": "set",
+      "x": 520,
+      "y": 120,
+      "params": {
+        "values": {
+          "ticketNo": "TKT-{{ nowMillis }}",
+          "priority": "{{ input.priority == null ? 'normal' : input.priority.toLowerCase() }}",
+          "category": "{{ input.category == null ? 'general' : input.category.toLowerCase() }}"
+        }
+      }
+    },
+    {
+      "id": "is-urgent",
+      "type": "if",
+      "x": 760,
+      "y": 120,
+      "params": {
+        "condition": "{{ input.priority == 'high' or input.priority == 'urgent' }}"
+      }
+    },
+    {
+      "id": "urgent-alert",
+      "type": "http",
+      "x": 1000,
+      "y": 20,
+      "params": {
+        "method": "POST",
+        "url": "{{ vars.alertWebhook }}",
+        "body": {
+          "text": "🔴 URGENT {{ input.ticketNo }}: {{ input.subject }} ({{ input.email }})"
+        }
+      }
+    },
+    {
+      "id": "is-billing",
+      "type": "if",
+      "x": 1000,
+      "y": 220,
+      "params": {
+        "condition": "{{ input.category == 'billing' }}"
+      }
+    },
+    {
+      "id": "billing-team",
+      "type": "http",
+      "x": 1240,
+      "y": 140,
+      "params": {
+        "method": "POST",
+        "url": "{{ vars.alertWebhook }}",
+        "body": {
+          "text": "💳 Billing ticket {{ input.ticketNo }}: {{ input.subject }} ({{ input.email }})"
+        }
+      }
+    },
+    {
+      "id": "general-queue",
+      "type": "log",
+      "x": 1240,
+      "y": 320,
+      "params": {
+        "message": "General queue: {{ input.ticketNo }} {{ input.subject }}"
+      }
+    },
+    {
+      "id": "reply",
+      "type": "set",
+      "x": 1500,
+      "y": 120,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "ok": true,
+          "ticketNo": "{{ nodes['assign-number'].ticketNo }}",
+          "message": "We received your request. Your ticket number is {{ nodes['assign-number'].ticketNo }}"
+        }
+      }
+    },
+    {
+      "id": "invalid",
+      "type": "set",
+      "x": 520,
+      "y": 360,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "ok": false,
+          "error": "email and subject are required"
+        }
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "ticket",
+      "to": "is-valid"
+    },
+    {
+      "from": "is-valid",
+      "to": "assign-number",
+      "branch": "true"
+    },
+    {
+      "from": "is-valid",
+      "to": "invalid",
+      "branch": "false"
+    },
+    {
+      "from": "assign-number",
+      "to": "is-urgent"
+    },
+    {
+      "from": "is-urgent",
+      "to": "urgent-alert",
+      "branch": "true"
+    },
+    {
+      "from": "is-urgent",
+      "to": "is-billing",
+      "branch": "false"
+    },
+    {
+      "from": "is-billing",
+      "to": "billing-team",
+      "branch": "true"
+    },
+    {
+      "from": "is-billing",
+      "to": "general-queue",
+      "branch": "false"
+    },
+    {
+      "from": "urgent-alert",
+      "to": "reply"
+    },
+    {
+      "from": "billing-team",
+      "to": "reply"
+    },
+    {
+      "from": "general-queue",
+      "to": "reply"
+    }
+  ]
+}

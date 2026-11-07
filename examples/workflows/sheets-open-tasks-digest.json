@@ -1,0 +1,109 @@
+{
+  "id": "sheets-open-tasks-digest",
+  "name": "Google Sheets: open tasks digest (weekdays 09:00)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "weekdays-0900",
+      "type": "trigger",
+      "x": 40,
+      "y": 200,
+      "params": {
+        "cron": "0 9 * * MON-FRI",
+        "sample": {}
+      }
+    },
+    {
+      "id": "read-tasks",
+      "type": "googleSheets",
+      "x": 280,
+      "y": 200,
+      "params": {
+        "credential": "google",
+        "operation": "read",
+        "spreadsheetId": "{{ vars.sheetId }}",
+        "range": "Tasks"
+      }
+    },
+    {
+      "id": "open-tasks",
+      "type": "set",
+      "x": 520,
+      "y": 200,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "total": "{{ input.count }}",
+          "open": "{{ input.rows.?[status == 'open'] }}",
+          "openCount": "{{ input.rows.?[status == 'open'].size() }}"
+        }
+      }
+    },
+    {
+      "id": "any-open",
+      "type": "if",
+      "x": 760,
+      "y": 200,
+      "params": {
+        "condition": "{{ input.openCount > 0 }}"
+      }
+    },
+    {
+      "id": "digest",
+      "type": "set",
+      "x": 1000,
+      "y": 120,
+      "params": {
+        "values": {
+          "text": "📋 {{ input.openCount }} open task(s) of {{ input.total }}:\n{{ input.open.!['• ' + task + ' (' + owner + ', due ' + due + ')'].toString().replace('[', '').replace(']', '').replace(', • ', '\n• ') }}"
+        }
+      }
+    },
+    {
+      "id": "post",
+      "type": "log",
+      "x": 1240,
+      "y": 120,
+      "params": {
+        "message": "{{ input.text }}"
+      }
+    },
+    {
+      "id": "all-done",
+      "type": "log",
+      "x": 1000,
+      "y": 300,
+      "params": {
+        "message": "No open tasks 🎉"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "weekdays-0900",
+      "to": "read-tasks"
+    },
+    {
+      "from": "read-tasks",
+      "to": "open-tasks"
+    },
+    {
+      "from": "open-tasks",
+      "to": "any-open"
+    },
+    {
+      "from": "any-open",
+      "to": "digest",
+      "branch": "true"
+    },
+    {
+      "from": "any-open",
+      "to": "all-done",
+      "branch": "false"
+    },
+    {
+      "from": "digest",
+      "to": "post"
+    }
+  ]
+}

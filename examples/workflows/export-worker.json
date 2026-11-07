@@ -1,0 +1,92 @@
+{
+  "id": "export-worker",
+  "name": "Customer data export, step 2: Redis worker → SQL → Excel → email",
+  "active": false,
+  "nodes": [
+    {
+      "id": "export-jobs",
+      "type": "trigger",
+      "x": 40,
+      "y": 200,
+      "params": {
+        "listen": {
+          "type": "redis",
+          "credential": "redis",
+          "list": "export-jobs"
+        },
+        "sample": {
+          "body": {
+            "email": "alice@example.com",
+            "requestedAt": "2026-11-04T10:00:00"
+          }
+        }
+      }
+    },
+    {
+      "id": "customer-orders",
+      "type": "database",
+      "x": 280,
+      "y": 200,
+      "params": {
+        "credential": "shop-db",
+        "maxRows": 10000,
+        "query": "SELECT order_no, total, currency, status, created_at FROM shop_orders WHERE customer_email = :email ORDER BY created_at DESC",
+        "params": {
+          "email": "{{ trigger.body.email }}"
+        }
+      }
+    },
+    {
+      "id": "build-file",
+      "type": "spreadsheet",
+      "x": 520,
+      "y": 200,
+      "params": {
+        "rows": "{{ input.rows }}",
+        "format": "xlsx",
+        "fileName": "my-orders-{{ today }}",
+        "sheetName": "Orders"
+      }
+    },
+    {
+      "id": "send-to-customer",
+      "type": "email",
+      "x": 760,
+      "y": 200,
+      "params": {
+        "credential": "smtp",
+        "to": "{{ trigger.body.email }}",
+        "subject": "Your order history export",
+        "text": "Hi,\n\nAs requested on {{ trigger.body.requestedAt }}, your order history ({{ nodes['customer-orders'].count }} orders) is attached.\n\nThe Shop team",
+        "attachments": "{{ input.file }}"
+      }
+    },
+    {
+      "id": "done",
+      "type": "log",
+      "x": 1000,
+      "y": 200,
+      "params": {
+        "message": "Export sent to {{ trigger.body.email }} ({{ nodes['customer-orders'].count }} rows)"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "export-jobs",
+      "to": "customer-orders"
+    },
+    {
+      "from": "customer-orders",
+      "to": "build-file"
+    },
+    {
+      "from": "build-file",
+      "to": "send-to-customer"
+    },
+    {
+      "from": "send-to-customer",
+      "to": "done"
+    }
+  ]
+}

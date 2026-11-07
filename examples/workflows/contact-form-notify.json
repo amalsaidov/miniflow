@@ -1,0 +1,102 @@
+{
+  "id": "contact-form-notify",
+  "name": "Contact form → email + Slack (webhook)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "form",
+      "type": "trigger",
+      "x": 40,
+      "y": 220,
+      "params": {
+        "path": "contact-notify",
+        "sample": {
+          "name": "Jane",
+          "email": "jane@example.com",
+          "message": "Could you send me a quote?"
+        }
+      }
+    },
+    {
+      "id": "is-valid",
+      "type": "if",
+      "x": 280,
+      "y": 220,
+      "params": {
+        "condition": "{{ input.email != null and input.email.contains('@') and input.message != null }}"
+      }
+    },
+    {
+      "id": "email",
+      "type": "email",
+      "x": 520,
+      "y": 120,
+      "params": {
+        "credential": "smtp",
+        "to": "{{ vars.reportEmail }}",
+        "subject": "New contact message: {{ input.name }}",
+        "text": "From: {{ input.name }} <{{ input.email }}>\n\n{{ input.message }}"
+      }
+    },
+    {
+      "id": "slack",
+      "type": "slack",
+      "x": 760,
+      "y": 120,
+      "params": {
+        "credential": "slack",
+        "text": "📩 {{ trigger.name }} ({{ trigger.email }}) sent a message."
+      }
+    },
+    {
+      "id": "reply",
+      "type": "set",
+      "x": 1000,
+      "y": 120,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "ok": true,
+          "message": "Thanks, we received your message."
+        }
+      }
+    },
+    {
+      "id": "invalid",
+      "type": "set",
+      "x": 520,
+      "y": 340,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "ok": false,
+          "error": "email and message are required"
+        }
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "form",
+      "to": "is-valid"
+    },
+    {
+      "from": "is-valid",
+      "to": "email",
+      "branch": "true"
+    },
+    {
+      "from": "is-valid",
+      "to": "invalid",
+      "branch": "false"
+    },
+    {
+      "from": "email",
+      "to": "slack"
+    },
+    {
+      "from": "slack",
+      "to": "reply"
+    }
+  ]
+}

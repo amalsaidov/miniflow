@@ -1,0 +1,294 @@
+[
+  {
+    "id": "sheets-add-task",
+    "name": "Google Sheets: add a task row (webhook)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "new-task",
+        "type": "trigger",
+        "x": 40,
+        "y": 200,
+        "params": {
+          "path": "tasks",
+          "sample": {
+            "task": "Prepare Q4 report",
+            "owner": "Alice",
+            "due": "2026-11-20"
+          }
+        }
+      },
+      {
+        "id": "is-valid",
+        "type": "if",
+        "x": 280,
+        "y": 200,
+        "params": {
+          "condition": "{{ input.task != null and !input.task.isBlank() }}"
+        }
+      },
+      {
+        "id": "append-row",
+        "type": "googleSheets",
+        "x": 520,
+        "y": 120,
+        "params": {
+          "credential": "google",
+          "operation": "append",
+          "spreadsheetId": "{{ vars.sheetId }}",
+          "range": "Tasks",
+          "values": [
+            [
+              "{{ today }}",
+              "{{ input.task.trim() }}",
+              "{{ input.owner == null ? 'unassigned' : input.owner }}",
+              "{{ input.due }}",
+              "open"
+            ]
+          ]
+        }
+      },
+      {
+        "id": "reply",
+        "type": "set",
+        "x": 760,
+        "y": 120,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "ok": true,
+            "added": "{{ trigger.task }}",
+            "range": "{{ input.updatedRange }}"
+          }
+        }
+      },
+      {
+        "id": "invalid",
+        "type": "set",
+        "x": 520,
+        "y": 300,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "ok": false,
+            "error": "task is required"
+          }
+        }
+      }
+    ],
+    "connections": [
+      {
+        "from": "new-task",
+        "to": "is-valid"
+      },
+      {
+        "from": "is-valid",
+        "to": "append-row",
+        "branch": "true"
+      },
+      {
+        "from": "is-valid",
+        "to": "invalid",
+        "branch": "false"
+      },
+      {
+        "from": "append-row",
+        "to": "reply"
+      }
+    ]
+  },
+  {
+    "id": "sheets-open-tasks-digest",
+    "name": "Google Sheets: open tasks digest (weekdays 09:00)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "weekdays-0900",
+        "type": "trigger",
+        "x": 40,
+        "y": 200,
+        "params": {
+          "cron": "0 9 * * MON-FRI",
+          "sample": {}
+        }
+      },
+      {
+        "id": "read-tasks",
+        "type": "googleSheets",
+        "x": 280,
+        "y": 200,
+        "params": {
+          "credential": "google",
+          "operation": "read",
+          "spreadsheetId": "{{ vars.sheetId }}",
+          "range": "Tasks"
+        }
+      },
+      {
+        "id": "open-tasks",
+        "type": "set",
+        "x": 520,
+        "y": 200,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "total": "{{ input.count }}",
+            "open": "{{ input.rows.?[status == 'open'] }}",
+            "openCount": "{{ input.rows.?[status == 'open'].size() }}"
+          }
+        }
+      },
+      {
+        "id": "any-open",
+        "type": "if",
+        "x": 760,
+        "y": 200,
+        "params": {
+          "condition": "{{ input.openCount > 0 }}"
+        }
+      },
+      {
+        "id": "digest",
+        "type": "set",
+        "x": 1000,
+        "y": 120,
+        "params": {
+          "values": {
+            "text": "📋 {{ input.openCount }} open task(s) of {{ input.total }}:\n{{ input.open.!['• ' + task + ' (' + owner + ', due ' + due + ')'].toString().replace('[', '').replace(']', '').replace(', • ', '\n• ') }}"
+          }
+        }
+      },
+      {
+        "id": "post",
+        "type": "log",
+        "x": 1240,
+        "y": 120,
+        "params": {
+          "message": "{{ input.text }}"
+        }
+      },
+      {
+        "id": "all-done",
+        "type": "log",
+        "x": 1000,
+        "y": 300,
+        "params": {
+          "message": "No open tasks 🎉"
+        }
+      }
+    ],
+    "connections": [
+      {
+        "from": "weekdays-0900",
+        "to": "read-tasks"
+      },
+      {
+        "from": "read-tasks",
+        "to": "open-tasks"
+      },
+      {
+        "from": "open-tasks",
+        "to": "any-open"
+      },
+      {
+        "from": "any-open",
+        "to": "digest",
+        "branch": "true"
+      },
+      {
+        "from": "any-open",
+        "to": "all-done",
+        "branch": "false"
+      },
+      {
+        "from": "digest",
+        "to": "post"
+      }
+    ]
+  },
+  {
+    "id": "sheets-execution-log",
+    "name": "Google Sheets: yesterday's MiniFlow executions → sheet (daily 06:00)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "daily-0600",
+        "type": "trigger",
+        "x": 40,
+        "y": 200,
+        "params": {
+          "cron": "0 6 * * *",
+          "sample": {}
+        }
+      },
+      {
+        "id": "yesterday",
+        "type": "database",
+        "x": 280,
+        "y": 200,
+        "params": {
+          "credential": "miniflow-db",
+          "maxRows": 5000,
+          "query": "SELECT started_at, workflow_name AS workflow, run_mode AS mode, status, duration_ms FROM executions WHERE started_at >= CURRENT_DATE - INTERVAL '1' DAY AND started_at < CURRENT_DATE ORDER BY started_at"
+        }
+      },
+      {
+        "id": "has-rows",
+        "type": "if",
+        "x": 520,
+        "y": 200,
+        "params": {
+          "condition": "{{ input.count > 0 }}"
+        }
+      },
+      {
+        "id": "append-rows",
+        "type": "googleSheets",
+        "x": 760,
+        "y": 120,
+        "params": {
+          "credential": "google",
+          "operation": "append",
+          "spreadsheetId": "{{ vars.sheetId }}",
+          "range": "Executions",
+          "values": "{{ input.rows }}",
+          "columns": [
+            "started_at",
+            "workflow",
+            "mode",
+            "status",
+            "duration_ms"
+          ]
+        }
+      },
+      {
+        "id": "done",
+        "type": "log",
+        "x": 1000,
+        "y": 120,
+        "params": {
+          "message": "{{ input.appendedRows }} execution(s) written to {{ input.updatedRange }}"
+        }
+      }
+    ],
+    "connections": [
+      {
+        "from": "daily-0600",
+        "to": "yesterday"
+      },
+      {
+        "from": "yesterday",
+        "to": "has-rows"
+      },
+      {
+        "from": "has-rows",
+        "to": "append-rows",
+        "branch": "true"
+      },
+      {
+        "from": "append-rows",
+        "to": "done"
+      }
+    ]
+  }
+]

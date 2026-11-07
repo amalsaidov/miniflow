@@ -1,0 +1,19 @@
+# Build
+target/
+!.mvn/wrapper/maven-wrapper.jar
+
+# Local data: H2 database files and the generated encryption key
+data/
+
+# Secrets
+.env
+*.key
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# Node (editor tests)
+node_modules/

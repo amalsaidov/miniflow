@@ -1,0 +1,57 @@
+{
+  "id": "kafka-event-publisher",
+  "name": "Publish webhook events to Kafka",
+  "active": false,
+  "nodes": [
+    {
+      "id": "event",
+      "type": "trigger",
+      "x": 40,
+      "y": 200,
+      "params": {
+        "path": "events",
+        "sample": {
+          "type": "user.signup",
+          "userId": 42,
+          "email": "ali@example.com"
+        }
+      }
+    },
+    {
+      "id": "kafka",
+      "type": "kafka",
+      "x": 300,
+      "y": 200,
+      "params": {
+        "credential": "kafka",
+        "topic": "miniflow.events",
+        "key": "{{ input.type }}",
+        "message": "{{ input }}"
+      }
+    },
+    {
+      "id": "reply",
+      "type": "set",
+      "x": 560,
+      "y": 200,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "ok": true,
+          "partition": "{{ input.partition }}",
+          "offset": "{{ input.offset }}"
+        }
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "event",
+      "to": "kafka"
+    },
+    {
+      "from": "kafka",
+      "to": "reply"
+    }
+  ]
+}

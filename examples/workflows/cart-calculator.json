@@ -1,0 +1,161 @@
+{
+  "id": "cart-calculator",
+  "name": "Cart calculator: coupon + shipping + VAT (webhook, offline)",
+  "active": true,
+  "nodes": [
+    {
+      "id": "cart",
+      "type": "trigger",
+      "x": 40,
+      "y": 220,
+      "params": {
+        "path": "cart",
+        "sample": {
+          "product": "Headphones",
+          "price": 450,
+          "qty": 2,
+          "coupon": "SAVE10"
+        }
+      }
+    },
+    {
+      "id": "is-valid",
+      "type": "if",
+      "x": 280,
+      "y": 220,
+      "params": {
+        "condition": "{{ input.price != null and input.qty != null and input.qty > 0 }}"
+      }
+    },
+    {
+      "id": "subtotal",
+      "type": "set",
+      "x": 520,
+      "y": 120,
+      "params": {
+        "values": {
+          "subtotal": "{{ input.price * input.qty }}"
+        }
+      }
+    },
+    {
+      "id": "has-coupon",
+      "type": "if",
+      "x": 760,
+      "y": 120,
+      "params": {
+        "condition": "{{ input.coupon != null and input.coupon.toUpperCase() == 'SAVE10' }}"
+      }
+    },
+    {
+      "id": "ten-percent-off",
+      "type": "set",
+      "x": 1000,
+      "y": 30,
+      "params": {
+        "values": {
+          "discount": "{{ (input.subtotal * 10 + 0.5).intValue() / 100.0 }}"
+        }
+      }
+    },
+    {
+      "id": "no-discount",
+      "type": "set",
+      "x": 1000,
+      "y": 220,
+      "params": {
+        "values": {
+          "discount": 0
+        }
+      }
+    },
+    {
+      "id": "shipping",
+      "type": "set",
+      "x": 1240,
+      "y": 120,
+      "params": {
+        "values": {
+          "shipping": "{{ input.subtotal - input.discount >= 500 ? 0 : 49.90 }}"
+        }
+      }
+    },
+    {
+      "id": "summary",
+      "type": "set",
+      "x": 1480,
+      "y": 120,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "product": "{{ input.product }}",
+          "qty": "{{ input.qty }}",
+          "subtotal": "{{ input.subtotal }}",
+          "discount": "{{ input.discount }}",
+          "shipping": "{{ input.shipping }}",
+          "total": "{{ ((input.subtotal - input.discount + input.shipping) * 100 + 0.5).intValue() / 100.0 }}",
+          "vatIncluded": "{{ (((input.subtotal - input.discount) * 20 / 120.0) * 100 + 0.5).intValue() / 100.0 }}"
+        }
+      }
+    },
+    {
+      "id": "invalid",
+      "type": "set",
+      "x": 520,
+      "y": 360,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "error": "price and qty (> 0) are required",
+          "example": {
+            "product": "Pen",
+            "price": 25,
+            "qty": 4
+          }
+        }
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "cart",
+      "to": "is-valid"
+    },
+    {
+      "from": "is-valid",
+      "to": "subtotal",
+      "branch": "true"
+    },
+    {
+      "from": "is-valid",
+      "to": "invalid",
+      "branch": "false"
+    },
+    {
+      "from": "subtotal",
+      "to": "has-coupon"
+    },
+    {
+      "from": "has-coupon",
+      "to": "ten-percent-off",
+      "branch": "true"
+    },
+    {
+      "from": "has-coupon",
+      "to": "no-discount",
+      "branch": "false"
+    },
+    {
+      "from": "ten-percent-off",
+      "to": "shipping"
+    },
+    {
+      "from": "no-discount",
+      "to": "shipping"
+    },
+    {
+      "from": "shipping",
+      "to": "summary"
+    }
+  ]
+}

@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:lang="${#locale.language}">
+<head>
+    <th:block th:replace="~{fragments :: headCommon(#{index.title})}"></th:block>
+</head>
+<body>
+<header th:replace="~{fragments :: topbar('workflows')}"></header>
+
+<main class="page">
+    <div class="page-head">
+        <h1 th:text="#{index.title}">Workflows</h1>
+        <form class="inline-form" th:action="@{/workflows}" method="post">
+            <input name="name" th:placeholder="#{index.new.name}" required>
+            <input name="id" th:placeholder="#{index.new.id}" pattern="[a-z0-9-]+"
+                   th:title="#{index.new.idTitle}" required>
+            <button class="btn primary" type="submit" th:text="#{index.new.button}">+ New workflow</button>
+        </form>
+    </div>
+
+    <p class="flash error" th:if="${error}" th:text="${error}"></p>
+    <p class="flash success" th:if="${success}" th:text="${success}"></p>
+
+    <details class="card import-panel" th:open="${importJson != null}">
+        <summary><strong th:text="#{index.import.title}">⇪ Import JSON</strong>
+            <span class="muted small" th:text="#{index.import.hint}">— a single workflow {…} or a list […]</span>
+            <span class="spacer"></span>
+            <a class="btn" th:href="@{/workflows/export}" onclick="event.stopPropagation()"
+               th:text="#{index.import.exportAll}">⇩ Export all</a>
+        </summary>
+        <form th:action="@{/workflows/import}" method="post">
+            <div class="row">
+                <input type="file" id="import-file" accept=".json,application/json">
+                <span class="small muted" th:text="#{index.import.paste}">or paste JSON below</span>
+            </div>
+            <textarea name="json" id="import-json" rows="10" spellcheck="false" required
+                      th:text="${importJson}" placeholder='{"id": "...", "name": "...", "nodes": [...], "connections": [...]}'></textarea>
+            <div class="row">
+                <label class="check"><input type="checkbox" name="overwrite" value="true">
+                    <span th:text="#{index.import.overwrite}">Overwrite workflows with the same id</span></label>
+                <span class="spacer"></span>
+                <button class="btn primary" type="submit" th:text="#{index.import.button}">Import</button>
+            </div>
+        </form>
+    </details>
+
+    <form class="filter-bar" th:action="@{/}" method="get" role="search">
+        <input type="search" name="q" th:value="${q}" th:placeholder="#{filter.search}" class="filter-search"
+               th:attr="aria-label=#{filter.search}">
+        <select name="state" onchange="this.form.submit()" th:attr="aria-label=#{index.col.active}">
+            <option value="" th:text="#{filter.state.any}">Any status</option>
+            <option value="active" th:selected="${state == 'active'}" th:text="#{filter.state.active}">Aktif</option>
+            <option value="inactive" th:selected="${state == 'inactive'}" th:text="#{filter.state.inactive}">Pasif</option>
+        </select>
+        <select name="trigger" onchange="this.form.submit()" th:attr="aria-label=#{index.col.trigger}">
+            <option value="" th:text="#{filter.trigger.any}">Any trigger</option>
+            <option value="webhook" th:selected="${trigger == 'webhook'}" th:text="#{filter.trigger.webhook}">Webhook</option>
+            <option value="schedule" th:selected="${trigger == 'schedule'}" th:text="#{filter.trigger.schedule}">Zamanlama</option>
+            <option value="queue" th:selected="${trigger == 'queue'}" th:text="#{filter.trigger.queue}">Kuyruk</option>
+            <option value="manual" th:selected="${trigger == 'manual'}" th:text="#{filter.trigger.manual}">Manuel</option>
+        </select>
+        <input type="hidden" name="size" th:value="${pg.size()}">
+        <button class="btn" type="submit" th:text="#{filter.apply}">Filtrele</button>
+        <a class="btn ghost" th:if="${filtered}" th:href="@{/}" th:text="#{filter.clear}">Temizle</a>
+        <span class="spacer"></span>
+        <span class="small muted" th:text="#{index.summary(${totalCount}, ${activeCount})}">12 workflows · 5 active</span>
+    </form>
+
+    <form id="bulk-form" class="bulk-bar" th:action="@{/workflows/bulk}" method="post" hidden
+          th:data-confirm-delete="#{bulk.delete.confirm}">
+        <input type="hidden" name="returnTo" th:value="${pg.url(pg.page())}">
+        <strong class="bulk-count"><span id="bulk-count">0</span> <span th:text="#{bulk.selected}">selected</span></strong>
+        <div class="bulk-actions">
+            <button class="btn sm" type="submit" name="action" value="activate" th:text="#{bulk.activate}">Activate</button>
+            <button class="btn sm" type="submit" name="action" value="deactivate" th:text="#{bulk.deactivate}">Deactivate</button>
+            <button class="btn sm" type="submit" th:formaction="@{/workflows/export-selected}" th:text="#{bulk.export}">JSON indir</button>
+            <button class="btn sm danger" type="submit" name="action" value="delete" th:text="#{common.delete}">Sil</button>
+        </div>
+        <span class="spacer"></span>
+        <button class="btn sm ghost" type="button" id="bulk-clear" th:text="#{bulk.clear}">Clear selection</button>
+    </form>
+
+    <div class="card">
+        <div class="table-wrap">
+            <table class="table wf-table">
+                <thead>
+                <tr>
+                    <th class="col-check"><input type="checkbox" id="check-all" th:attr="aria-label=#{bulk.selectAll}"
+                                                 th:title="#{bulk.selectAll}"></th>
+                    <th class="col-switch" th:text="#{index.col.active}">Aktif</th>
+                    <th th:text="#{index.col.name}">Ad</th>
+                    <th th:text="#{index.col.trigger}">Tetikleyici</th>
+                    <th class="hide-sm" th:text="#{index.col.nextRun}">Next run</th>
+                    <th></th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr th:each="r : ${pg.items()}" th:with="wf=${r.wf()}">
+                    <td class="col-check"><input type="checkbox" class="row-check" name="ids" form="bulk-form"
+                                                 th:value="${wf.id()}" th:attr="aria-label=${wf.name()}"></td>
+                    <td class="col-switch">
+                        <form th:action="@{/workflows/{id}/active(id=${wf.id()})}" method="post">
+                            <input type="hidden" name="active" th:value="${!wf.active()}">
+                            <button type="submit" class="switch" th:classappend="${wf.active()} ? 'on'"
+                                    th:title="${wf.active()} ? #{index.toggle.deactivate} : #{index.toggle.activate}"
+                                    th:attr="aria-pressed=${wf.active()}"><span></span></button>
+                        </form>
+                    </td>
+                    <td>
+                        <a class="cell-title" th:href="@{/workflows/{id}/edit(id=${wf.id()})}" th:text="${wf.name()}">ad</a>
+                        <div class="cell-sub"><code th:text="${wf.id()}">id</code> ·
+                            <span th:text="#{index.nodes(${wf.nodes().size()})}">0 nodes</span></div>
+                    </td>
+                    <td>
+                        <div class="trigger-line" th:if="${r.cron() != null}">
+                            <span class="tag schedule" th:text="#{index.trigger.schedule}">⏱ schedule</span>
+                            <code th:text="${r.cron()}"></code>
+                        </div>
+                        <div class="trigger-line" th:if="${r.webhook() != null}">
+                            <span class="tag" th:text="#{index.trigger.webhook}">webhook</span>
+                            <a th:href="@{/webhook/{p}(p=${r.webhook()})}" target="_blank"><code th:text="'/webhook/' + ${r.webhook()}"></code></a>
+                        </div>
+                        <div class="trigger-line" th:if="${r.listen() != null}">
+                            <span class="tag queue" th:text="#{index.trigger.queue}">⇄ queue</span>
+                            <code th:text="${r.listen()}"></code>
+                            <span class="badge err" th:if="${r.listenError() != null}" th:title="${r.listenError()}"
+                                  th:text="#{index.trigger.queueError}">not connected</span>
+                        </div>
+                        <span th:if="${r.cron() == null and r.webhook() == null and r.listen() == null}" class="muted"
+                              th:text="#{index.trigger.manualOnly}">manual only</span>
+                    </td>
+                    <td class="nowrap hide-sm">
+                        <span th:if="${r.nextRun() != null}" th:text="${#temporals.format(r.nextRun(), 'dd.MM HH:mm:ss')}"></span>
+                        <span th:if="${r.nextRun() == null}" class="muted">—</span>
+                    </td>
+                    <td class="actions">
+                        <div class="actions-inner">
+                            <a class="btn sm" th:href="@{/workflows/{id}/edit(id=${wf.id()})}" th:text="#{common.edit}">Edit</a>
+                            <a class="btn sm" th:href="@{/executions(workflow=${wf.id()})}" th:text="#{common.history}">History</a>
+                            <a class="btn sm" th:href="@{/workflows/{id}/export(id=${wf.id()})}" th:title="#{index.json.title}">JSON</a>
+                            <form th:action="@{/workflows/{id}/delete(id=${wf.id()})}" method="post"
+                                  th:data-confirm="#{index.delete.confirm}">
+                                <button class="btn sm danger" type="submit" th:text="#{common.delete}">Sil</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                <tr th:if="${pg.items().isEmpty()}">
+                    <td colspan="6" class="empty" th:text="${filtered} ? #{filter.noResults} : #{index.empty}">No workflows yet.</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+        <nav th:replace="~{fragments :: pagination(${pg})}"></nav>
+    </div>
+    <p class="small muted" th:utext="#{index.activeHint}">Webhooks and schedules only run for active workflows.</p>
+
+</main>
+<script th:replace="~{fragments :: confirmScript}"></script>
+<script>
+    (function () {
+        const checks = Array.from(document.querySelectorAll('.row-check'));
+        const all = document.getElementById('check-all');
+        const bar = document.getElementById('bulk-form');
+        const count = document.getElementById('bulk-count');
+        if (!all || !bar) return;
+        let last = null;
+        function update() {
+            const n = checks.filter(c => c.checked).length;
+            bar.hidden = n === 0;
+            count.textContent = n;
+            all.checked = n > 0 && n === checks.length;
+            all.indeterminate = n > 0 && n < checks.length;
+            checks.forEach(c => c.closest('tr').classList.toggle('selected', c.checked));
+        }
+        checks.forEach((c, i) => c.addEventListener('click', e => {
+            if (e.shiftKey && last !== null) {
+                const from = Math.min(last, i), to = Math.max(last, i);
+                for (let j = from; j <= to; j++) checks[j].checked = c.checked;
+            }
+            last = i;
+            update();
+        }));
+        all.addEventListener('change', () => { checks.forEach(c => { c.checked = all.checked; }); update(); });
+        document.getElementById('bulk-clear').addEventListener('click', () => { all.checked = false; all.dispatchEvent(new Event('change')); });
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape' && !bar.hidden) { all.checked = false; all.dispatchEvent(new Event('change')); }
+        });
+        bar.addEventListener('submit', e => {
+            const n = checks.filter(c => c.checked).length;
+            if (e.submitter && e.submitter.value === 'delete'
+                && !window.confirm(bar.dataset.confirmDelete.replace('{0}', n))) e.preventDefault();
+        });
+        update();
+    })();
+
+    document.getElementById('import-file').addEventListener('change', function (e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function () { document.getElementById('import-json').value = reader.result; };
+        reader.readAsText(file, 'UTF-8');
+    });
+</script>
+</body>
+</html>

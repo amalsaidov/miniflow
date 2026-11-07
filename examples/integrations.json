@@ -1,0 +1,303 @@
+[
+  {
+    "id": "blog-to-slack",
+    "name": "New blog posts to Slack (RSS)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "every-2-hours",
+        "type": "trigger",
+        "x": 40,
+        "y": 200,
+        "params": {
+          "cron": "0 */2 * * *",
+          "sample": {}
+        }
+      },
+      {
+        "id": "blog",
+        "type": "rss",
+        "x": 280,
+        "y": 200,
+        "params": {
+          "url": "https://spring.io/blog.atom",
+          "limit": 5
+        }
+      },
+      {
+        "id": "has-post",
+        "type": "if",
+        "x": 520,
+        "y": 200,
+        "params": {
+          "condition": "{{ input.latest != null }}"
+        }
+      },
+      {
+        "id": "is-new",
+        "type": "dedupe",
+        "x": 760,
+        "y": 140,
+        "params": {
+          "key": "{{ input.latest.link }}"
+        }
+      },
+      {
+        "id": "slack",
+        "type": "slack",
+        "x": 1000,
+        "y": 80,
+        "params": {
+          "credential": "slack",
+          "text": "📝 {{ input.title }}: {{ input.latest.title }}\n{{ input.latest.link }}"
+        }
+      }
+    ],
+    "connections": [
+      {
+        "from": "every-2-hours",
+        "to": "blog"
+      },
+      {
+        "from": "blog",
+        "to": "has-post"
+      },
+      {
+        "from": "has-post",
+        "to": "is-new",
+        "branch": "true"
+      },
+      {
+        "from": "is-new",
+        "to": "slack",
+        "branch": "new"
+      }
+    ]
+  },
+  {
+    "id": "daily-execution-report",
+    "name": "Daily MiniFlow execution report: SQL → Excel → email",
+    "active": false,
+    "nodes": [
+      {
+        "id": "daily-1800",
+        "type": "trigger",
+        "x": 40,
+        "y": 200,
+        "params": {
+          "cron": "0 18 * * *",
+          "sample": {}
+        }
+      },
+      {
+        "id": "query",
+        "type": "database",
+        "x": 280,
+        "y": 200,
+        "params": {
+          "credential": "miniflow-db",
+          "maxRows": 5000,
+          "query": "SELECT workflow_name AS workflow, run_mode AS mode, status, started_at, duration_ms FROM executions WHERE started_at >= CURRENT_DATE ORDER BY started_at DESC"
+        }
+      },
+      {
+        "id": "excel",
+        "type": "spreadsheet",
+        "x": 520,
+        "y": 200,
+        "params": {
+          "rows": "{{ input.rows }}",
+          "format": "xlsx",
+          "fileName": "executions-{{ today }}",
+          "sheetName": "Today"
+        }
+      },
+      {
+        "id": "email",
+        "type": "email",
+        "x": 760,
+        "y": 200,
+        "params": {
+          "credential": "smtp",
+          "to": "{{ vars.reportEmail }}",
+          "subject": "MiniFlow daily report {{ today }}",
+          "text": "Today's {{ nodes['query'].count }} executions are attached.",
+          "attachments": "{{ input.file }}"
+        }
+      }
+    ],
+    "connections": [
+      {
+        "from": "daily-1800",
+        "to": "query"
+      },
+      {
+        "from": "query",
+        "to": "excel"
+      },
+      {
+        "from": "excel",
+        "to": "email"
+      }
+    ]
+  },
+  {
+    "id": "contact-form-notify",
+    "name": "Contact form → email + Slack (webhook)",
+    "active": false,
+    "nodes": [
+      {
+        "id": "form",
+        "type": "trigger",
+        "x": 40,
+        "y": 220,
+        "params": {
+          "path": "contact-notify",
+          "sample": {
+            "name": "Jane",
+            "email": "jane@example.com",
+            "message": "Could you send me a quote?"
+          }
+        }
+      },
+      {
+        "id": "is-valid",
+        "type": "if",
+        "x": 280,
+        "y": 220,
+        "params": {
+          "condition": "{{ input.email != null and input.email.contains('@') and input.message != null }}"
+        }
+      },
+      {
+        "id": "email",
+        "type": "email",
+        "x": 520,
+        "y": 120,
+        "params": {
+          "credential": "smtp",
+          "to": "{{ vars.reportEmail }}",
+          "subject": "New contact message: {{ input.name }}",
+          "text": "From: {{ input.name }} <{{ input.email }}>\n\n{{ input.message }}"
+        }
+      },
+      {
+        "id": "slack",
+        "type": "slack",
+        "x": 760,
+        "y": 120,
+        "params": {
+          "credential": "slack",
+          "text": "📩 {{ trigger.name }} ({{ trigger.email }}) sent a message."
+        }
+      },
+      {
+        "id": "reply",
+        "type": "set",
+        "x": 1000,
+        "y": 120,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "ok": true,
+            "message": "Thanks, we received your message."
+          }
+        }
+      },
+      {
+        "id": "invalid",
+        "type": "set",
+        "x": 520,
+        "y": 340,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "ok": false,
+            "error": "email and message are required"
+          }
+        }
+      }
+    ],
+    "connections": [
+      {
+        "from": "form",
+        "to": "is-valid"
+      },
+      {
+        "from": "is-valid",
+        "to": "email",
+        "branch": "true"
+      },
+      {
+        "from": "is-valid",
+        "to": "invalid",
+        "branch": "false"
+      },
+      {
+        "from": "email",
+        "to": "slack"
+      },
+      {
+        "from": "slack",
+        "to": "reply"
+      }
+    ]
+  },
+  {
+    "id": "kafka-event-publisher",
+    "name": "Publish webhook events to Kafka",
+    "active": false,
+    "nodes": [
+      {
+        "id": "event",
+        "type": "trigger",
+        "x": 40,
+        "y": 200,
+        "params": {
+          "path": "events",
+          "sample": {
+            "type": "user.signup",
+            "userId": 42,
+            "email": "ali@example.com"
+          }
+        }
+      },
+      {
+        "id": "kafka",
+        "type": "kafka",
+        "x": 300,
+        "y": 200,
+        "params": {
+          "credential": "kafka",
+          "topic": "miniflow.events",
+          "key": "{{ input.type }}",
+          "message": "{{ input }}"
+        }
+      },
+      {
+        "id": "reply",
+        "type": "set",
+        "x": 560,
+        "y": 200,
+        "params": {
+          "keepInput": false,
+          "values": {
+            "ok": true,
+            "partition": "{{ input.partition }}",
+            "offset": "{{ input.offset }}"
+          }
+        }
+      }
+    ],
+    "connections": [
+      {
+        "from": "event",
+        "to": "kafka"
+      },
+      {
+        "from": "kafka",
+        "to": "reply"
+      }
+    ]
+  }
+]

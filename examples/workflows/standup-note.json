@@ -1,0 +1,105 @@
+{
+  "id": "standup-note",
+  "name": "Stand-up note: last journal entry → Slack (weekdays 09:45)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "weekdays-0945",
+      "type": "trigger",
+      "x": 40,
+      "y": 200,
+      "params": {
+        "cron": "45 9 * * MON-FRI",
+        "sample": {}
+      }
+    },
+    {
+      "id": "last-entry",
+      "type": "database",
+      "x": 280,
+      "y": 200,
+      "params": {
+        "credential": "miniflow-db",
+        "maxRows": 1,
+        "query": "SELECT day, summary, commits, pull_requests FROM dev_journal WHERE day < CAST(:today AS DATE) ORDER BY day DESC LIMIT 1",
+        "params": {
+          "today": "{{ today }}"
+        }
+      }
+    },
+    {
+      "id": "has-entry",
+      "type": "if",
+      "x": 520,
+      "y": 200,
+      "params": {
+        "condition": "{{ input.count > 0 }}"
+      }
+    },
+    {
+      "id": "post",
+      "type": "slack",
+      "x": 760,
+      "y": 120,
+      "params": {
+        "credential": "slack",
+        "text": "Stand-up: what I did on {{ input.first.day }}",
+        "blocks": [
+          {
+            "type": "header",
+            "text": {
+              "type": "plain_text",
+              "text": "🧾 Stand-up · {{ input.first.day }}",
+              "emoji": true
+            }
+          },
+          {
+            "type": "section",
+            "text": {
+              "type": "mrkdwn",
+              "text": "{{ input.first.summary }}"
+            }
+          },
+          {
+            "type": "context",
+            "elements": [
+              {
+                "type": "mrkdwn",
+                "text": "{{ input.first.commits }} commits · {{ input.first.pull_requests }} pull requests · from MiniFlow dev journal"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "no-entry",
+      "type": "log",
+      "x": 760,
+      "y": 300,
+      "params": {
+        "message": "No journal entry yet"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "weekdays-0945",
+      "to": "last-entry"
+    },
+    {
+      "from": "last-entry",
+      "to": "has-entry"
+    },
+    {
+      "from": "has-entry",
+      "to": "post",
+      "branch": "true"
+    },
+    {
+      "from": "has-entry",
+      "to": "no-entry",
+      "branch": "false"
+    }
+  ]
+}

@@ -1,0 +1,130 @@
+{
+  "id": "crypto-price-alert",
+  "name": "Bitcoin price alert (every 15 min)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "every-15-min",
+      "type": "trigger",
+      "x": 40,
+      "y": 200,
+      "params": {
+        "cron": "*/15 * * * *",
+        "sample": {}
+      }
+    },
+    {
+      "id": "fetch-prices",
+      "type": "http",
+      "x": 300,
+      "y": 200,
+      "params": {
+        "method": "GET",
+        "url": "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd",
+        "headers": {
+          "accept": "application/json"
+        }
+      }
+    },
+    {
+      "id": "prices",
+      "type": "set",
+      "x": 560,
+      "y": 200,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "btc": "{{ input.body.bitcoin.usd }}",
+          "eth": "{{ input.body.ethereum.usd }}"
+        }
+      }
+    },
+    {
+      "id": "dropped",
+      "type": "if",
+      "x": 820,
+      "y": 200,
+      "params": {
+        "condition": "{{ input.btc < 60000 }}"
+      }
+    },
+    {
+      "id": "drop-alert",
+      "type": "http",
+      "x": 1080,
+      "y": 60,
+      "params": {
+        "method": "POST",
+        "url": "{{ vars.alertWebhook }}",
+        "body": {
+          "text": "📉 BTC at ${{ input.btc }} (floor $60,000). ETH: ${{ input.eth }}"
+        }
+      }
+    },
+    {
+      "id": "spiked",
+      "type": "if",
+      "x": 1080,
+      "y": 300,
+      "params": {
+        "condition": "{{ input.btc > 150000 }}"
+      }
+    },
+    {
+      "id": "spike-alert",
+      "type": "http",
+      "x": 1340,
+      "y": 200,
+      "params": {
+        "method": "POST",
+        "url": "{{ vars.alertWebhook }}",
+        "body": {
+          "text": "📈 BTC at ${{ input.btc }} (ceiling $150,000). ETH: ${{ input.eth }}"
+        }
+      }
+    },
+    {
+      "id": "in-range",
+      "type": "log",
+      "x": 1340,
+      "y": 420,
+      "params": {
+        "message": "BTC ${{ input.btc }}, ETH ${{ input.eth }} (in range)"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "every-15-min",
+      "to": "fetch-prices"
+    },
+    {
+      "from": "fetch-prices",
+      "to": "prices"
+    },
+    {
+      "from": "prices",
+      "to": "dropped"
+    },
+    {
+      "from": "dropped",
+      "to": "drop-alert",
+      "branch": "true"
+    },
+    {
+      "from": "dropped",
+      "to": "spiked",
+      "branch": "false"
+    },
+    {
+      "from": "spiked",
+      "to": "spike-alert",
+      "branch": "true"
+    },
+    {
+      "from": "spiked",
+      "to": "in-range",
+      "branch": "false"
+    }
+  ]
+}

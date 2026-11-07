@@ -1,0 +1,118 @@
+{
+  "id": "fx-rate-api",
+  "name": "Mini FX API: /webhook/fx-rate?from=USD&to=TRY",
+  "active": true,
+  "nodes": [
+    {
+      "id": "request",
+      "type": "trigger",
+      "x": 40,
+      "y": 200,
+      "params": {
+        "path": "fx-rate",
+        "sample": {
+          "from": "EUR",
+          "to": "TRY"
+        }
+      }
+    },
+    {
+      "id": "has-params",
+      "type": "if",
+      "x": 280,
+      "y": 200,
+      "params": {
+        "condition": "{{ input.from != null and input.to != null }}"
+      }
+    },
+    {
+      "id": "fetch-rate",
+      "type": "http",
+      "x": 520,
+      "y": 100,
+      "params": {
+        "method": "GET",
+        "failOnError": false,
+        "url": "https://api.frankfurter.dev/v1/latest?base={{ input.from.trim().toUpperCase() }}&symbols={{ input.to.trim().toUpperCase() }}"
+      }
+    },
+    {
+      "id": "found",
+      "type": "if",
+      "x": 760,
+      "y": 100,
+      "params": {
+        "condition": "{{ input.ok and input.body.rates != null and input.body.rates.size() > 0 }}"
+      }
+    },
+    {
+      "id": "reply",
+      "type": "set",
+      "x": 1000,
+      "y": 20,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "from": "{{ input.body.base }}",
+          "to": "{{ trigger.to.trim().toUpperCase() }}",
+          "rate": "{{ input.body.rates[trigger.to.trim().toUpperCase()] }}",
+          "date": "{{ input.body.date }}"
+        }
+      }
+    },
+    {
+      "id": "not-found",
+      "type": "set",
+      "x": 1000,
+      "y": 200,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "error": "Rate not found: {{ trigger.from }} → {{ trigger.to }}"
+        }
+      }
+    },
+    {
+      "id": "missing-params",
+      "type": "set",
+      "x": 520,
+      "y": 320,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "error": "from and to are required. Example: /webhook/fx-rate?from=USD&to=TRY"
+        }
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "request",
+      "to": "has-params"
+    },
+    {
+      "from": "has-params",
+      "to": "fetch-rate",
+      "branch": "true"
+    },
+    {
+      "from": "has-params",
+      "to": "missing-params",
+      "branch": "false"
+    },
+    {
+      "from": "fetch-rate",
+      "to": "found"
+    },
+    {
+      "from": "found",
+      "to": "reply",
+      "branch": "true"
+    },
+    {
+      "from": "found",
+      "to": "not-found",
+      "branch": "false"
+    }
+  ]
+}

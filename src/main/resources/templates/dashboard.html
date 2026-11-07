@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:lang="${#locale.language}">
+<head>
+    <th:block th:replace="~{fragments :: headCommon(#{dash.title})}"></th:block>
+</head>
+<body>
+<header th:replace="~{fragments :: topbar('dashboard')}"></header>
+
+<main class="page dashboard">
+    <div class="page-head">
+        <div>
+            <h1 th:text="#{dash.title}">Panel</h1>
+            <p class="muted page-sub" th:text="#{dash.subtitle}">How your automations are doing</p>
+        </div>
+        <div class="segmented" role="group" th:attr="aria-label=#{dash.range.label}">
+            <a th:each="r : ${d.ranges()}" th:href="@{/dashboard(range=${r})}" th:text="#{${'dash.range.' + r}}"
+               th:classappend="${r == d.range()} ? 'active'"
+               th:attr="aria-current=${r == d.range()} ? 'true' : null">7d</a>
+        </div>
+    </div>
+
+    <section class="kpis">
+        <a class="kpi" th:href="@{/}">
+            <span class="kpi-label" th:text="#{dash.kpi.workflows}">Workflows</span>
+            <span class="kpi-value" th:text="${d.workflows()}">0</span>
+            <span class="kpi-sub" th:text="#{dash.kpi.workflowsSub(${d.active()}, ${d.webhooks()}, ${d.scheduled()}, ${d.queues()})}">0 aktif</span>
+        </a>
+        <a class="kpi" th:href="@{/executions}">
+            <span class="kpi-label" th:text="#{dash.kpi.runs}">Executions</span>
+            <span class="kpi-value" th:text="${#numbers.formatInteger(d.runs(), 1, 'DEFAULT')}">0</span>
+            <span class="kpi-sub" th:text="#{${'dash.range.' + d.range()}}">last 7 days</span>
+        </a>
+        <a class="kpi" th:href="@{/executions(status='ERROR')}" th:classappend="${d.failed() > 0} ? 'has-errors'">
+            <span class="kpi-label" th:text="#{dash.kpi.successRate}">Success rate</span>
+            <span class="kpi-value">
+                <th:block th:text="${d.successRate() == null} ? '—' : ${d.successRate()} + '%'">—</th:block>
+            </span>
+            <span class="kpi-sub">
+                <span class="status-dot" th:classappend="${d.failed() > 0} ? 'err' : 'ok'" aria-hidden="true"></span>
+                <th:block th:text="#{dash.kpi.failedSub(${d.failed()})}">0 failed</th:block>
+            </span>
+        </a>
+        <div class="kpi">
+            <span class="kpi-label" th:text="#{dash.kpi.duration}">Average duration</span>
+            <span class="kpi-value"><th:block th:text="${d.avgMs()}">0</th:block><small> ms</small></span>
+            <span class="kpi-sub" th:text="#{dash.kpi.p95(${d.p95Ms()})}">p95 0 ms</span>
+        </div>
+    </section>
+
+    <section class="dash-grid">
+        <div class="card panel span-2">
+            <div class="panel-head">
+                <h3 th:text="#{dash.chart.title}">Executions over time</h3>
+                <div class="legend">
+                    <span><i class="swatch ok"></i><th:block th:text="#{dash.chart.success}">Succeeded</th:block></span>
+                    <span><i class="swatch err"></i><th:block th:text="#{dash.chart.failed}">Failed</th:block></span>
+                </div>
+            </div>
+            <div th:if="${d.runs() == 0}" class="panel-empty" th:text="#{dash.chart.empty}">No executions in this period.</div>
+            <div th:if="${d.runs() > 0}" class="chart" th:classappend="'range-' + ${d.range()}">
+                <div class="chart-y" aria-hidden="true">
+                    <span th:text="${d.maxBucket()}">10</span>
+                    <span th:text="${d.maxBucket() / 2}">5</span>
+                    <span>0</span>
+                </div>
+                <div class="chart-plot">
+                    <div class="chart-grid" aria-hidden="true"><i></i><i></i><i></i></div>
+                    <svg class="chart-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                        <defs>
+                            <linearGradient id="okFill" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0" class="ok-stop-top"/>
+                                <stop offset="1" class="ok-stop-bottom"/>
+                            </linearGradient>
+                        </defs>
+                        <path class="area-ok" fill="url(#okFill)" th:attr="d=${d.okArea()}"/>
+                        <path class="line-ok" th:attr="d=${d.okLine()}"/>
+                        <path class="line-err" th:attr="d=${d.failedLine()}"/>
+                    </svg>
+                    <div class="chart-bars">
+                        <div class="bar-col" tabindex="0" th:each="b : ${d.buckets()}"
+                             th:with="tip=#{dash.chart.tip(${b.tip()}, ${b.ok()}, ${b.failed()})}"
+                             th:attr="data-tip=${tip},aria-label=${tip}">
+                            <div class="bar-stack">
+                                <i class="pt ok" th:style="'bottom:' + ${b.okPct()} + '%'"></i>
+                                <i class="pt err" th:if="${b.failed() > 0}" th:style="'bottom:' + ${b.failedPct()} + '%'"></i>
+                            </div>
+                            <span class="bar-label" th:text="${b.label()}">01.11</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card panel">
+            <div class="panel-head"><h3 th:text="#{dash.modes.title}">Triggered by</h3></div>
+            <ul class="hbars">
+                <li th:each="m : ${d.modes()}" th:class="'mode-' + ${m.mode()}">
+                    <span class="hbar-label" th:text="#{${'mode.' + m.mode()}}">webhook</span>
+                    <span class="hbar-track"><span class="hbar-fill" th:style="'width:' + ${m.pct()} + '%'"></span></span>
+                    <span class="hbar-value" th:text="${m.count()}">0</span>
+                </li>
+            </ul>
+            <div class="panel-foot small muted">
+                <span th:text="#{dash.modes.hint}">Manual = test runs in the editor and API runs</span>
+            </div>
+        </div>
+
+        <div class="card panel span-2">
+            <div class="panel-head">
+                <h3 th:text="#{dash.top.title}">Most active workflows</h3>
+                <a class="link-arrow small" th:href="@{/executions}" th:text="#{dash.viewAll}">View all →</a>
+            </div>
+            <div th:if="${d.top().isEmpty()}" class="panel-empty" th:text="#{dash.chart.empty}">No executions in this period.</div>
+            <div class="table-wrap" th:unless="${d.top().isEmpty()}">
+                <table class="table compact">
+                    <thead>
+                    <tr>
+                        <th th:text="#{exec.col.workflow}">Workflow</th>
+                        <th class="num" th:text="#{dash.top.runs}">Runs</th>
+                        <th class="num" th:text="#{dash.top.failed}">Failed</th>
+                        <th th:text="#{dash.top.success}">Success</th>
+                        <th class="num hide-sm" th:text="#{dash.top.avg}">Ort.</th>
+                        <th class="hide-sm" th:text="#{dash.top.last}">Last run</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr th:each="w : ${d.top()}">
+                        <td><a class="cell-title" th:href="@{/executions(workflow=${w.id()})}" th:text="${w.name()}">workflow</a></td>
+                        <td class="num" th:text="${w.runs()}">0</td>
+                        <td class="num">
+                            <a th:if="${w.failed() > 0}" class="badge err"
+                               th:href="@{/executions(workflow=${w.id()}, status='ERROR')}" th:text="${w.failed()}">0</a>
+                            <span th:if="${w.failed() == 0}" class="muted">0</span>
+                        </td>
+                        <td>
+                            <span class="meter" th:classappend="${w.successRate() < 90} ? 'low'">
+                                <span th:style="'width:' + ${w.successRate()} + '%'"></span>
+                            </span>
+                            <span class="meter-value" th:text="${w.successRate()} + '%'">100%</span>
+                        </td>
+                        <td class="num hide-sm" th:text="${w.avgMs()} + ' ms'">0 ms</td>
+                        <td class="nowrap hide-sm muted" th:text="${#temporals.format(w.lastRun(), 'dd.MM HH:mm')}">-</td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="card panel">
+            <div class="panel-head"><h3 th:text="#{dash.upcoming.title}">Upcoming scheduled runs</h3></div>
+            <div th:if="${d.upcoming().isEmpty()}" class="panel-empty" th:text="#{dash.upcoming.empty}">Aktif zamanlama yok.</div>
+            <ul class="list" th:unless="${d.upcoming().isEmpty()}">
+                <li th:each="u : ${d.upcoming()}">
+                    <div>
+                        <a class="cell-title" th:href="@{/workflows/{id}/edit(id=${u.workflowId()})}" th:text="${u.name()}">workflow</a>
+                        <div class="cell-sub"><code th:text="${u.cron()}">* * * * *</code></div>
+                    </div>
+                    <span class="nowrap when" th:text="${#temporals.format(u.nextRun(), 'dd.MM HH:mm')}">-</span>
+                </li>
+            </ul>
+        </div>
+
+        <div class="card panel span-2">
+            <div class="panel-head">
+                <h3 th:text="#{dash.failures.title}">Son hatalar</h3>
+                <a class="link-arrow small" th:href="@{/executions(status='ERROR')}" th:text="#{dash.viewAll}">View all →</a>
+            </div>
+            <div th:if="${d.failures().isEmpty()}" class="panel-empty ok" th:text="#{dash.failures.empty}">Hata yok.</div>
+            <ul class="list failures" th:unless="${d.failures().isEmpty()}">
+                <li th:each="f : ${d.failures()}">
+                    <span class="status-dot err" aria-hidden="true"></span>
+                    <div class="grow">
+                        <div>
+                            <a class="cell-title" th:href="@{/executions/{id}(id=${f.executionId()})}" th:text="${f.workflowName()}">workflow</a>
+                            <code th:if="${f.nodeId() != null}" th:text="${f.nodeId()}">node</code>
+                        </div>
+                        <div class="cell-sub error-text" th:text="${f.error()}">hata</div>
+                    </div>
+                    <span class="nowrap when" th:text="${#temporals.format(f.startedAt(), 'dd.MM HH:mm')}">-</span>
+                </li>
+            </ul>
+        </div>
+
+        <div class="card panel">
+            <div class="panel-head"><h3 th:text="#{dash.health.title}">Sistem</h3></div>
+            <dl class="facts">
+                <dt th:text="#{dash.health.listeners}">Kuyruk dinleyiciler</dt>
+                <dd>
+                    <span class="status-dot" th:classappend="${d.listenersFailing() > 0} ? 'err' : 'ok'" aria-hidden="true"></span>
+                    <th:block th:text="#{dash.health.listenersValue(${d.listenersRunning()}, ${d.listenersFailing()})}">0</th:block>
+                </dd>
+                <dt th:text="#{dash.health.credentials}">Kimlik bilgileri</dt>
+                <dd><a th:href="@{/credentials}" th:text="${d.credentials()}">0</a></dd>
+                <dt th:text="#{dash.health.variables}">Variables</dt>
+                <dd><a th:href="@{/variables}" th:text="${d.variables()}">0</a></dd>
+                <dt th:text="#{dash.health.retention}">History retention</dt>
+                <dd th:text="#{dash.health.retentionValue(${d.retentionDays()})}">14 days</dd>
+            </dl>
+        </div>
+    </section>
+</main>
+</body>
+</html>

@@ -1,0 +1,67 @@
+{
+  "id": "daily-execution-report",
+  "name": "Daily MiniFlow execution report: SQL → Excel → email",
+  "active": false,
+  "nodes": [
+    {
+      "id": "daily-1800",
+      "type": "trigger",
+      "x": 40,
+      "y": 200,
+      "params": {
+        "cron": "0 18 * * *",
+        "sample": {}
+      }
+    },
+    {
+      "id": "query",
+      "type": "database",
+      "x": 280,
+      "y": 200,
+      "params": {
+        "credential": "miniflow-db",
+        "maxRows": 5000,
+        "query": "SELECT workflow_name AS workflow, run_mode AS mode, status, started_at, duration_ms FROM executions WHERE started_at >= CURRENT_DATE ORDER BY started_at DESC"
+      }
+    },
+    {
+      "id": "excel",
+      "type": "spreadsheet",
+      "x": 520,
+      "y": 200,
+      "params": {
+        "rows": "{{ input.rows }}",
+        "format": "xlsx",
+        "fileName": "executions-{{ today }}",
+        "sheetName": "Today"
+      }
+    },
+    {
+      "id": "email",
+      "type": "email",
+      "x": 760,
+      "y": 200,
+      "params": {
+        "credential": "smtp",
+        "to": "{{ vars.reportEmail }}",
+        "subject": "MiniFlow daily report {{ today }}",
+        "text": "Today's {{ nodes['query'].count }} executions are attached.",
+        "attachments": "{{ input.file }}"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "daily-1800",
+      "to": "query"
+    },
+    {
+      "from": "query",
+      "to": "excel"
+    },
+    {
+      "from": "excel",
+      "to": "email"
+    }
+  ]
+}

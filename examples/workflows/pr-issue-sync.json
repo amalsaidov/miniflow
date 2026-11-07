@@ -1,0 +1,141 @@
+{
+  "id": "pr-issue-sync",
+  "name": "GitHub pull requests → comment on the linked issue + Slack (signed webhook)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "github",
+      "type": "trigger",
+      "x": 40,
+      "y": 220,
+      "params": {
+        "path": "github-pr",
+        "signatureSecretVar": "githubWebhookSecret",
+        "sample": {
+          "_headers": {
+            "x-github-event": "pull_request"
+          },
+          "action": "closed",
+          "repository": {
+            "full_name": "acme/shop"
+          },
+          "pull_request": {
+            "number": 77,
+            "title": "Add PayPal checkout",
+            "body": "Fixes #142",
+            "html_url": "https://github.com/acme/shop/pull/77",
+            "merged": true,
+            "user": {
+              "login": "omernaci"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "extract",
+      "type": "set",
+      "x": 260,
+      "y": 220,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "event": "{{ trigger._headers == null ? null : trigger._headers['x-github-event'] }}",
+          "action": "{{ trigger.action }}",
+          "repo": "{{ trigger.repository?.full_name }}",
+          "issue": "{{ trigger.pull_request != null and (trigger.pull_request?.title + ' ' + trigger.pull_request?.body).matches('(?s).*#[0-9]+.*') ? (trigger.pull_request?.title + ' ' + trigger.pull_request?.body).replaceAll('(?s)^.*?#([0-9]+).*$', '$1') : null }}",
+          "title": "{{ trigger.pull_request?.title }}",
+          "url": "{{ trigger.pull_request?.html_url }}",
+          "author": "{{ trigger.pull_request?.user?.login }}",
+          "merged": "{{ trigger.pull_request?.merged == true }}"
+        }
+      }
+    },
+    {
+      "id": "is-relevant",
+      "type": "if",
+      "x": 480,
+      "y": 220,
+      "params": {
+        "condition": "{{ input.event == 'pull_request' and input.issue != null and input.repo != null and (input.action == 'opened' or input.action == 'closed' or input.action == 'reopened') }}"
+      }
+    },
+    {
+      "id": "comment-on-issue",
+      "type": "github",
+      "x": 700,
+      "y": 140,
+      "params": {
+        "credential": "github",
+        "operation": "comment",
+        "repo": "{{ input.repo }}",
+        "issueNumber": "{{ input.issue }}",
+        "body": "Pull request #{{ trigger.pull_request.number }} {{ input.merged ? 'merged' : input.action }} by @{{ input.author }}: {{ input.title }}\n{{ input.url }}"
+      }
+    },
+    {
+      "id": "notify-team",
+      "type": "slack",
+      "x": 920,
+      "y": 140,
+      "params": {
+        "credential": "slack",
+        "text": "🔀 PR #{{ trigger.pull_request.number }} {{ extract.merged ? 'merged' : extract.action }} by {{ extract.author }}: <{{ extract.url }}|{{ extract.title }}> · linked issue #{{ extract.issue }}"
+      }
+    },
+    {
+      "id": "synced",
+      "type": "set",
+      "x": 1140,
+      "y": 140,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "ok": true,
+          "issue": "{{ nodes['extract'].issue }}"
+        }
+      }
+    },
+    {
+      "id": "ignored",
+      "type": "set",
+      "x": 700,
+      "y": 320,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "ok": true,
+          "ignored": true
+        }
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "github",
+      "to": "extract"
+    },
+    {
+      "from": "extract",
+      "to": "is-relevant"
+    },
+    {
+      "from": "is-relevant",
+      "to": "comment-on-issue",
+      "branch": "true"
+    },
+    {
+      "from": "is-relevant",
+      "to": "ignored",
+      "branch": "false"
+    },
+    {
+      "from": "comment-on-issue",
+      "to": "notify-team"
+    },
+    {
+      "from": "notify-team",
+      "to": "synced"
+    }
+  ]
+}

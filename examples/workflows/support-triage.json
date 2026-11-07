@@ -1,0 +1,189 @@
+{
+  "id": "support-triage",
+  "name": "AI support triage: GitHub issue + Slack for urgent, Sheets log for the rest",
+  "active": false,
+  "nodes": [
+    {
+      "id": "request",
+      "type": "trigger",
+      "x": 40,
+      "y": 220,
+      "params": {
+        "path": "support",
+        "sample": {
+          "name": "Bob",
+          "email": "bob@example.com",
+          "subject": "Charged but no order",
+          "message": "My card was charged 2 hours ago but I don't see any order. This is the second time!"
+        }
+      }
+    },
+    {
+      "id": "is-valid",
+      "type": "if",
+      "x": 260,
+      "y": 220,
+      "params": {
+        "condition": "{{ input.email != null and input.email.contains('@') and input.message != null }}"
+      }
+    },
+    {
+      "id": "classify",
+      "type": "ai",
+      "x": 480,
+      "y": 160,
+      "params": {
+        "credential": "openai",
+        "json": true,
+        "maxTokens": 300,
+        "system": "You are the support triage assistant of an online shop. Reply ONLY with JSON of the form {\"category\": \"billing|shipping|technical|account|other\", \"urgency\": \"high|normal|low\", \"sentiment\": \"angry|neutral|happy\", \"summary\": \"one short sentence\"}. Urgency is high for payment problems, outages, security issues or very angry customers.",
+        "prompt": "Subject: {{ input.subject }}\nMessage: {{ input.message }}"
+      }
+    },
+    {
+      "id": "is-urgent",
+      "type": "if",
+      "x": 700,
+      "y": 160,
+      "params": {
+        "condition": "{{ input.data.urgency == 'high' }}"
+      }
+    },
+    {
+      "id": "create-ticket",
+      "type": "github",
+      "x": 920,
+      "y": 60,
+      "params": {
+        "credential": "github",
+        "operation": "createIssue",
+        "repo": "{{ vars.githubRepo }}",
+        "title": "[{{ nodes['classify'].data.category }}] {{ trigger.subject }}",
+        "body": "{{ nodes['classify'].data.summary }}\n\nFrom: {{ trigger.name }} <{{ trigger.email }}>\nSentiment: {{ nodes['classify'].data.sentiment }}\n\n{{ trigger.message }}",
+        "labels": [
+          "support",
+          "{{ nodes['classify'].data.category }}",
+          "urgent"
+        ]
+      }
+    },
+    {
+      "id": "page-support",
+      "type": "slack",
+      "x": 1140,
+      "y": 60,
+      "params": {
+        "credential": "slack",
+        "text": "🔴 Urgent ticket #{{ input.number }} ({{ nodes['classify'].data.category }}, {{ nodes['classify'].data.sentiment }}): {{ nodes['classify'].data.summary }}\n{{ input.url }}"
+      }
+    },
+    {
+      "id": "log-to-sheet",
+      "type": "googleSheets",
+      "x": 920,
+      "y": 260,
+      "params": {
+        "credential": "google",
+        "operation": "append",
+        "spreadsheetId": "{{ vars.supportSheetId }}",
+        "range": "Tickets",
+        "values": [
+          [
+            "{{ now }}",
+            "{{ trigger.email }}",
+            "{{ trigger.subject }}",
+            "{{ input.data.category }}",
+            "{{ input.data.urgency }}",
+            "{{ input.data.summary }}"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "type": "email",
+      "x": 1360,
+      "y": 160,
+      "params": {
+        "credential": "smtp",
+        "to": "{{ trigger.email }}",
+        "subject": "We received your request: {{ trigger.subject }}",
+        "text": "Hi {{ trigger.name }},\n\nThanks for contacting us. {{ nodes['classify'].data.urgency == 'high' ? 'Your request was marked urgent and a teammate is on it.' : 'We usually reply within one business day.' }}\n\nSupport team"
+      }
+    },
+    {
+      "id": "respond",
+      "type": "set",
+      "x": 1580,
+      "y": 160,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "ok": true,
+          "category": "{{ nodes['classify'].data.category }}",
+          "urgency": "{{ nodes['classify'].data.urgency }}",
+          "ticket": "{{ nodes['create-ticket']?.number }}"
+        }
+      }
+    },
+    {
+      "id": "invalid",
+      "type": "set",
+      "x": 480,
+      "y": 380,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "ok": false,
+          "error": "email and message are required"
+        }
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "request",
+      "to": "is-valid"
+    },
+    {
+      "from": "is-valid",
+      "to": "classify",
+      "branch": "true"
+    },
+    {
+      "from": "is-valid",
+      "to": "invalid",
+      "branch": "false"
+    },
+    {
+      "from": "classify",
+      "to": "is-urgent"
+    },
+    {
+      "from": "is-urgent",
+      "to": "create-ticket",
+      "branch": "true"
+    },
+    {
+      "from": "is-urgent",
+      "to": "log-to-sheet",
+      "branch": "false"
+    },
+    {
+      "from": "create-ticket",
+      "to": "page-support"
+    },
+    {
+      "from": "page-support",
+      "to": "acknowledge"
+    },
+    {
+      "from": "log-to-sheet",
+      "to": "acknowledge"
+    },
+    {
+      "from": "acknowledge",
+      "to": "respond"
+    }
+  ]
+}

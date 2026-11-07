@@ -1,0 +1,91 @@
+{
+  "id": "export-request",
+  "name": "Customer data export, step 1: accept request → Redis job queue",
+  "active": false,
+  "nodes": [
+    {
+      "id": "request",
+      "type": "trigger",
+      "x": 40,
+      "y": 200,
+      "params": {
+        "path": "exports",
+        "sample": {
+          "email": "alice@example.com"
+        }
+      }
+    },
+    {
+      "id": "is-valid",
+      "type": "if",
+      "x": 260,
+      "y": 200,
+      "params": {
+        "condition": "{{ input.email != null and input.email.contains('@') }}"
+      }
+    },
+    {
+      "id": "enqueue",
+      "type": "redis",
+      "x": 480,
+      "y": 120,
+      "params": {
+        "credential": "redis",
+        "operation": "rpush",
+        "key": "export-jobs",
+        "message": {
+          "email": "{{ input.email.trim().toLowerCase() }}",
+          "requestedAt": "{{ now }}"
+        }
+      }
+    },
+    {
+      "id": "accepted",
+      "type": "set",
+      "x": 700,
+      "y": 120,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "ok": true,
+          "queued": true,
+          "position": "{{ input.length }}",
+          "message": "Your export is being prepared and will be emailed to you."
+        }
+      }
+    },
+    {
+      "id": "invalid",
+      "type": "set",
+      "x": 480,
+      "y": 300,
+      "params": {
+        "keepInput": false,
+        "values": {
+          "ok": false,
+          "error": "A valid email is required"
+        }
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "request",
+      "to": "is-valid"
+    },
+    {
+      "from": "is-valid",
+      "to": "enqueue",
+      "branch": "true"
+    },
+    {
+      "from": "is-valid",
+      "to": "invalid",
+      "branch": "false"
+    },
+    {
+      "from": "enqueue",
+      "to": "accepted"
+    }
+  ]
+}

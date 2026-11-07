@@ -1,0 +1,32 @@
+name: Feature request
+description: Suggest a new node, trigger or capability
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: checkboxes
+    attributes:
+      label: Search before asking
+      options:
+        - label: I searched the existing issues and found no similar request.
+          required: true
+  - type: textarea
+    attributes:
+      label: Description
+      description: What would you like MiniFlow to do?
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Use case
+      description: Which workflow would this make possible or easier?
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Alternatives
+      description: How do you solve it today?
+  - type: checkboxes
+    attributes:
+      label: Are you willing to submit a pull request?
+      options:
+        - label: Yes, I am willing to submit a PR.

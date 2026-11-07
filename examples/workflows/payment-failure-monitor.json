@@ -1,0 +1,102 @@
+{
+  "id": "payment-failure-monitor",
+  "name": "Payment failure spike detector (Kafka → Redis counter → Slack)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "payment-events",
+      "type": "trigger",
+      "x": 40,
+      "y": 200,
+      "params": {
+        "listen": {
+          "type": "kafka",
+          "credential": "kafka",
+          "topic": "payments.events",
+          "group": "miniflow-payment-monitor"
+        },
+        "sample": {
+          "body": {
+            "paymentId": "pay_123",
+            "orderNo": "ORD-1001",
+            "status": "FAILED",
+            "reason": "card_declined"
+          }
+        }
+      }
+    },
+    {
+      "id": "is-failure",
+      "type": "if",
+      "x": 280,
+      "y": 200,
+      "params": {
+        "condition": "{{ trigger.body.status == 'FAILED' }}"
+      }
+    },
+    {
+      "id": "count-this-hour",
+      "type": "redis",
+      "x": 520,
+      "y": 140,
+      "params": {
+        "credential": "redis",
+        "operation": "incr",
+        "key": "payment-failures:{{ now.substring(0, 13) }}"
+      }
+    },
+    {
+      "id": "over-threshold",
+      "type": "if",
+      "x": 760,
+      "y": 140,
+      "params": {
+        "condition": "{{ input.value >= 5 }}"
+      }
+    },
+    {
+      "id": "alert-once-per-hour",
+      "type": "dedupe",
+      "x": 1000,
+      "y": 80,
+      "params": {
+        "key": "payment-alert-{{ now.substring(0, 13) }}"
+      }
+    },
+    {
+      "id": "alert-payments-team",
+      "type": "slack",
+      "x": 1240,
+      "y": 80,
+      "params": {
+        "credential": "slack",
+        "text": "⚠️ {{ nodes['count-this-hour'].value }} failed payments this hour (latest: {{ trigger.body.orderNo }}, reason {{ trigger.body.reason }}). Check the payment provider."
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "payment-events",
+      "to": "is-failure"
+    },
+    {
+      "from": "is-failure",
+      "to": "count-this-hour",
+      "branch": "true"
+    },
+    {
+      "from": "count-this-hour",
+      "to": "over-threshold"
+    },
+    {
+      "from": "over-threshold",
+      "to": "alert-once-per-hour",
+      "branch": "true"
+    },
+    {
+      "from": "alert-once-per-hour",
+      "to": "alert-payments-team",
+      "branch": "new"
+    }
+  ]
+}
